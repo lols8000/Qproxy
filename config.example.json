@@ -1,0 +1,8 @@
+{
+  "listen_host": "127.0.0.1",
+  "listen_port": 8899,
+  "blocklists": ["data/blocklist.txt"],
+  "whitelists": ["data/whitelist.txt"],
+  "connect_timeout_seconds": 10,
+  "log_allowed": false
+}

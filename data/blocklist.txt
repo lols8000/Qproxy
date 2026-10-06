@@ -1,0 +1,21 @@
+# Qproxy - lista inicial pequena. Amplie com listas de hosts confiáveis.
+doubleclick.net
+googlesyndication.com
+googleadservices.com
+adservice.google.com
+securepubads.g.doubleclick.net
+amazon-adsystem.com
+criteo.com
+criteo.net
+taboola.com
+outbrain.com
+ads-twitter.com
+adsrvr.org
+adnxs.com
+rubiconproject.com
+pubmatic.com
+scorecardresearch.com
+zedo.com
+quantserve.com
+moatads.com
+serving-sys.com
