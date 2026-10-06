@@ -17,6 +17,7 @@ class BrowserSetupTests(unittest.TestCase):
             browsers = detect_installed_browsers(
                 env={},
                 extra_candidates={"firefox": [exe]},
+                use_registry=False,
             )
             self.assertEqual(len(browsers), 1)
             self.assertEqual(browsers[0].key, "firefox")
