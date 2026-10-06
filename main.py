@@ -11,6 +11,9 @@ import sys
 import time
 import webbrowser
 
+from qproxy.browser_setup import print_browser_setup, setup_browser_companion
+from qproxy.config import Config
+
 ROOT = Path(__file__).resolve().parent
 DATA_DIR = ROOT / "data"
 BACKUP_FILE = DATA_DIR / "windows_proxy_backup.json"
@@ -257,6 +260,8 @@ def run(config_path: Path, open_browser: bool = True) -> int:
 
     recover_stale_proxy()
 
+    config = Config.load(config_path if config_path.exists() else None)
+
     if port_open(PROXY_HOST, PROXY_PORT):
         print(f"ERRO: a porta {PROXY_PORT} já está em uso. O Qproxy não foi iniciado.")
         print("Feche a instância anterior e tente novamente.")
@@ -288,6 +293,16 @@ def run(config_path: Path, open_browser: bool = True) -> int:
         start_watchdog(process.pid)
 
         dashboard_ready = wait_for_port(PROXY_HOST, DASHBOARD_PORT, process, timeout=5)
+
+        if config.browser_companion.auto_detect:
+            try:
+                _, browser_results, packages = setup_browser_companion(
+                    ROOT,
+                    config.browser_companion,
+                )
+                print_browser_setup(browser_results, packages)
+            except Exception as exc:
+                print(f"[Qproxy] Integração com navegadores não concluída: {exc}")
 
         print()
         print("=" * 56)
