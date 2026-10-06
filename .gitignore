@@ -5,3 +5,7 @@ venv/
 .pytest_cache/
 *.log
 .DS_Store
+
+data/stats.json
+data/stats.json.tmp
+data/remote/
