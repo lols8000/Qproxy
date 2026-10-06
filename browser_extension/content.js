@@ -17,31 +17,33 @@
     "button[aria-label*='Close']"
   ];
 
-  const AD_MARKERS = [
-    ".ad-showing",
-    ".ad-interrupting",
+  const VISIBLE_AD_MARKERS = [
     ".ytp-ad-player-overlay",
-    ".ytp-ad-module"
+    ".ytp-ad-preview-container",
+    ".ytp-ad-text",
+    ".ytp-ad-image-overlay"
   ];
 
   const state = {
     adActive: false,
     saved: null,
-    lastSkipAt: 0
+    lastSkipAt: 0,
+    sweepScheduled: false
   };
+
+  function isVisible(element) {
+    if (!(element instanceof HTMLElement)) return false;
+    const style = getComputedStyle(element);
+    if (style.display === "none" || style.visibility === "hidden") return false;
+    const rect = element.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0;
+  }
 
   function firstVisible(selectors) {
     for (const selector of selectors) {
       for (const element of document.querySelectorAll(selector)) {
-        if (!(element instanceof HTMLElement)) continue;
-        const style = getComputedStyle(element);
-        if (
-          style.display !== "none" &&
-          style.visibility !== "hidden" &&
-          !element.hasAttribute("disabled")
-        ) {
-          return element;
-        }
+        if (!isVisible(element) || element.hasAttribute("disabled")) continue;
+        return element;
       }
     }
     return null;
@@ -68,7 +70,9 @@
       return true;
     }
 
-    return AD_MARKERS.some((selector) => document.querySelector(selector));
+    return VISIBLE_AD_MARKERS.some((selector) =>
+      Array.from(document.querySelectorAll(selector)).some(isVisible)
+    );
   }
 
   function rememberVideo(video) {
@@ -102,9 +106,6 @@
 
     try {
       video.muted = true;
-    } catch {}
-
-    try {
       video.playbackRate = 16;
     } catch {}
 
@@ -143,13 +144,17 @@
     state.adActive = true;
 
     const now = Date.now();
+    let skipped = false;
     if (now - state.lastSkipAt > 250) {
-      if (clickIfPresent(SKIP_SELECTORS)) {
-        state.lastSkipAt = now;
-      }
+      skipped = clickIfPresent(SKIP_SELECTORS);
+      if (skipped) state.lastSkipAt = now;
     }
 
     clickIfPresent(CLOSE_SELECTORS);
+
+    // Give a real skip button one cycle to finish the transition before
+    // touching the video element itself.
+    if (skipped) return;
 
     const video =
       document.querySelector("video.html5-main-video") ||
@@ -161,6 +166,15 @@
     }
   }
 
+  function scheduleSweep() {
+    if (state.sweepScheduled) return;
+    state.sweepScheduled = true;
+    requestAnimationFrame(() => {
+      state.sweepScheduled = false;
+      sweep();
+    });
+  }
+
   function start() {
     const root = document.documentElement;
     if (!root) {
@@ -168,7 +182,7 @@
       return;
     }
 
-    const observer = new MutationObserver(() => sweep());
+    const observer = new MutationObserver(scheduleSweep);
     observer.observe(root, {
       childList: true,
       subtree: true,
