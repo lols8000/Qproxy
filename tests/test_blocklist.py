@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from qproxy.blocklist import DomainMatcher, normalize_host
+from qproxy.blocklist import DomainMatcher, RuleManager, normalize_host
 
 
 class DomainMatcherTests(unittest.TestCase):
@@ -39,6 +39,25 @@ class DomainMatcherTests(unittest.TestCase):
             self.assertTrue(m.is_blocked("sub.tracker.two.test"))
             self.assertTrue(m.is_blocked("ads.three.test"))
             self.assertFalse(m.is_blocked("safe.three.test"))
+
+    def test_static_compatibility_allowlist_wins_remote_block(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            blocked = root / "remote.txt"
+            user_allow = root / "whitelist.txt"
+            blocked.write_text(
+                "||googlevideo.com^\n||youtube.com^\n||ads.example.test^\n",
+                encoding="utf-8",
+            )
+            user_allow.write_text("", encoding="utf-8")
+            rules = RuleManager(
+                [(blocked, "ad")],
+                [user_allow],
+                ["googlevideo.com", "youtube.com"],
+            )
+            self.assertFalse(rules.is_blocked("rr1---sn.example.googlevideo.com"))
+            self.assertFalse(rules.is_blocked("www.youtube.com"))
+            self.assertTrue(rules.is_blocked("ads.example.test"))
 
 
 if __name__ == "__main__":
