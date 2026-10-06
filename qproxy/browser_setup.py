@@ -106,7 +106,7 @@ def detect_installed_browsers(
             base = env.get(env_name)
             if base:
                 candidates.append(Path(base) / suffix)
-        candidates.extend(_registry_app_path(exe_name))
+        if use_registry and key != "chromium":\n            candidates.extend(_registry_app_path(exe_name))
         candidates.extend(extra_candidates.get(key, []))
 
         for candidate in candidates:
