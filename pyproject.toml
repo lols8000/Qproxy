@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "qproxy-adblock"
-version = "0.3.1"
-description = "Local ad-blocking proxy with browser detection and YouTube companion"
+version = "0.3.2"
+description = "Local ad-blocking proxy with Chrome, Edge, Firefox and Brave companion integration"
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [{name = "Qproxy"}]

@@ -1,10 +1,10 @@
-# Qproxy V3.1
+# Qproxy V3.2
 
-Qproxy combina:
+Qproxy combina três camadas:
 
 1. **proxy local Python** para anúncios e trackers por domínio;
 2. **Qproxy YouTube Companion** para anúncios e elementos patrocinados dentro do YouTube;
-3. **detecção automática de navegadores instalados** no Windows.
+3. **integração automática com Chrome, Edge, Firefox e Brave** no Windows.
 
 ## Uso
 
@@ -14,98 +14,143 @@ python main.py
 
 O `main.py`:
 
-- recupera um proxy antigo que tenha ficado preso;
-- inicia o Qproxy;
-- ativa o proxy do Windows somente depois que o servidor responde;
-- detecta Chrome, Edge, Firefox, Brave e Chromium;
-- gera automaticamente os pacotes da extensão em `data/browser/`;
-- tenta configurar instalação administrada somente quando existe um ID/pacote assinado configurado;
-- abre o painel local;
-- restaura o proxy anterior quando é encerrado.
+- recupera proxy antigo do Qproxy;
+- inicia o servidor;
+- só ativa o proxy do Windows depois que `127.0.0.1:8899` responde;
+- detecta Chrome, Edge, Firefox e Brave;
+- gera os pacotes da extensão;
+- aplica a política de instalação quando houver um ID/pacote assinado configurado;
+- abre o painel;
+- restaura o proxy anterior ao encerrar.
 
-Painel:
-
-```text
-http://127.0.0.1:8900
-```
-
-## Instalação automática da extensão
-
-A V3.1 já faz a parte de detecção e distribuição automaticamente, mas navegadores modernos não permitem que um programa comum instale silenciosamente uma extensão local arbitrária.
+## Navegadores suportados
 
 ### Chrome
 
-Para instalação silenciosa suportada, configure um ID publicado/gerenciado em:
+Configuração:
 
 ```json
-"browser_companion": {
-  "managed_policy_install": true,
-  "chrome_extension_id": "ID_DA_EXTENSAO"
-}
+"chrome_extension_id": "ID_PUBLICADO_NA_CHROME_WEB_STORE"
 ```
 
-Por padrão, o Qproxy não grava políticas corporativas no navegador.
+Quando o ID estiver configurado, o Qproxy usa:
+
+```text
+Software\Policies\Google\Chrome\ExtensionInstallForcelist
+```
 
 ### Microsoft Edge
 
-Use o ID da extensão publicada no Edge Add-ons:
+Configuração:
 
 ```json
-"browser_companion": {
-  "managed_policy_install": true,
-  "edge_extension_id": "ID_DA_EXTENSAO"
-}
+"edge_extension_id": "ID_PUBLICADO_NO_EDGE_ADDONS"
 ```
+
+Política:
+
+```text
+Software\Policies\Microsoft\Edge\ExtensionInstallForcelist
+```
+
+Em Windows não associado a domínio, o Edge restringe force-install a extensões listadas no Microsoft Edge Add-ons.
+
+### Brave
+
+Configuração:
+
+```json
+"brave_extension_id": "ID_DA_EXTENSAO"
+```
+
+Política:
+
+```text
+Software\Policies\BraveSoftware\Brave\ExtensionInstallForcelist
+```
+
+O Brave reutiliza as políticas Chromium no namespace próprio `BraveSoftware\Brave`.
 
 ### Firefox
 
-Firefox aceita instalação automática por política usando XPI assinado. Depois de obter um XPI assinado:
+Configuração:
+
+```json
+"firefox_extension_id": "qproxy-youtube@qproxy.local",
+"firefox_signed_xpi": "data/browser/qproxy-youtube-signed.xpi"
+```
+
+O Qproxy aplica `ExtensionSettings` com `installation_mode=force_installed` e `install_url`.
+
+Para instalação persistente normal, use um XPI assinado/publicado.
+
+## Estados exibidos
+
+Ao iniciar, o Qproxy agora mostra estados claros:
+
+```text
+Google Chrome: AGUARDANDO PUBLICAÇÃO
+Microsoft Edge: AGUARDANDO PUBLICAÇÃO
+Mozilla Firefox: AGUARDANDO ASSINATURA
+Brave: AGUARDANDO PUBLICAÇÃO
+```
+
+Depois que os IDs/XPI válidos forem configurados:
+
+```text
+Google Chrome: INSTALAÇÃO CONFIGURADA
+Microsoft Edge: INSTALAÇÃO CONFIGURADA
+Mozilla Firefox: INSTALAÇÃO CONFIGURADA
+Brave: INSTALAÇÃO CONFIGURADA
+```
+
+Isso diferencia navegador detectado de extensão realmente configurada.
+
+## Configuração padrão
 
 ```json
 "browser_companion": {
+  "auto_detect": true,
+  "auto_install": true,
+  "package_dir": "data/browser",
   "managed_policy_install": true,
-  "firefox_signed_xpi": "data/browser/qproxy-youtube-signed.xpi"
+
+  "chrome_extension_id": null,
+  "chrome_update_url": "https://clients2.google.com/service/update2/crx",
+
+  "edge_extension_id": null,
+  "edge_update_url": "https://edge.microsoft.com/extensionwebstorebase/v1/crx",
+
+  "brave_extension_id": null,
+  "brave_update_url": "https://clients2.google.com/service/update2/crx",
+
+  "firefox_extension_id": "qproxy-youtube@qproxy.local",
+  "firefox_signed_xpi": null
 }
 ```
 
-O Qproxy usa o ID:
-
-```text
-qproxy-youtube@qproxy.local
-```
-
-### Brave / Chromium
-
-Eles são detectados e o pacote Chromium é criado automaticamente. A integração silenciosa pode ser adicionada quando houver um canal de distribuição assinado apropriado.
+Nenhuma política é gravada enquanto o artefato necessário daquele navegador estiver ausente.
 
 ## Pacotes gerados
-
-Ao executar `python main.py`, o Qproxy cria:
 
 ```text
 data/browser/qproxy-youtube-companion.zip
 data/browser/qproxy-youtube-companion.xpi
 ```
 
-O XPI gerado localmente é útil para empacotamento/teste, mas não é considerado assinado pelo Firefox comum.
-
-## Por que não forçar a instalação local de qualquer jeito?
-
-Chrome/Chromium tratam políticas de extensão como mecanismo administrativo. Distribuir software de consumidor que altera políticas corporativas para instalar extensões fora do fluxo oficial pode ser classificado como comportamento indesejado/malware.
-
-Por isso o Qproxy só escreve políticas quando `managed_policy_install=true` **e** há um ID/artefato de distribuição configurado.
+O ZIP é o pacote-base para Chrome/Edge/Brave. O XPI local é útil para teste/assinatura, mas não substitui uma assinatura válida do Firefox.
 
 ## YouTube
 
-A extensão continua:
+O Companion:
 
-- tentando clicar em **Pular anúncio**;
-- fechando overlays;
-- acelerando/mutando anúncios ativos quando necessário;
-- restaurando volume e velocidade do vídeo normal;
-- ocultando cards e slots patrocinados identificáveis.
+- tenta pular anúncios;
+- fecha overlays;
+- acelera/muta anúncios ativos quando necessário;
+- restaura o estado do vídeo normal;
+- esconde slots e cards patrocinados identificáveis.
 
-A allowlist de reprodução protege domínios essenciais como `youtube.com`, `googlevideo.com` e `ytimg.com`.
+A allowlist do proxy protege a infraestrutura essencial do YouTube para não quebrar a reprodução.
 
 ## Se a internet ficar presa
 

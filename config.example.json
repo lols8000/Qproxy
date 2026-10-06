@@ -27,7 +27,7 @@
     "auto_detect": true,
     "auto_install": true,
     "package_dir": "data/browser",
-    "managed_policy_install": false,
+    "managed_policy_install": true,
 
     "chrome_extension_id": null,
     "chrome_update_url": "https://clients2.google.com/service/update2/crx",
@@ -35,8 +35,8 @@
     "edge_extension_id": null,
     "edge_update_url": "https://edge.microsoft.com/extensionwebstorebase/v1/crx",
 
-    "chromium_extension_id": null,
-    "chromium_update_url": "https://clients2.google.com/service/update2/crx",
+    "brave_extension_id": null,
+    "brave_update_url": "https://clients2.google.com/service/update2/crx",
 
     "firefox_extension_id": "qproxy-youtube@qproxy.local",
     "firefox_signed_xpi": null
