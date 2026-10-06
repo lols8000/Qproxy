@@ -21,6 +21,16 @@ DEFAULT_REMOTE_BLOCKLISTS = [
     },
 ]
 
+DEFAULT_COMPATIBILITY_ALLOWLIST = [
+    "youtube.com",
+    "youtu.be",
+    "ytimg.com",
+    "googlevideo.com",
+    "youtubei.googleapis.com",
+    "youtube.googleapis.com",
+    "youtube-nocookie.com",
+]
+
 
 @dataclass(slots=True, frozen=True)
 class RemoteListSource:
@@ -45,6 +55,9 @@ class Config:
     listen_port: int = 8899
     blocklists: list[str] = field(default_factory=lambda: ["data/blocklist.txt"])
     whitelists: list[str] = field(default_factory=lambda: ["data/whitelist.txt"])
+    compatibility_allowlist: list[str] = field(
+        default_factory=lambda: list(DEFAULT_COMPATIBILITY_ALLOWLIST)
+    )
     connect_timeout_seconds: float = 10.0
     log_allowed: bool = False
 

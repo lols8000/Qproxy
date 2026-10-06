@@ -138,9 +138,19 @@ class DomainMatcher:
 class RuleManager:
     """Atomically reloadable domain rules shared by proxy and dashboard."""
 
-    def __init__(self, block_sources: list[tuple[Path, str]], whitelist_paths: list[Path]) -> None:
+    def __init__(
+        self,
+        block_sources: list[tuple[Path, str]],
+        whitelist_paths: list[Path],
+        static_allowlist: list[str] | None = None,
+    ) -> None:
         self.block_sources = block_sources
         self.whitelist_paths = whitelist_paths
+        self.static_allowlist = tuple(
+            domain
+            for raw in (static_allowlist or [])
+            if (domain := normalize_host(raw)) and _hostname_like(domain)
+        )
         self._lock = RLock()
         self._matcher = DomainMatcher()
         self.last_load_counts = {"blocked_rules": 0, "allow_rules": 0}
@@ -150,10 +160,17 @@ class RuleManager:
         matcher = DomainMatcher()
         blocked = 0
         allowed = 0
+
         for path, category in self.block_sources:
             blocked += matcher.load_file(path, category=category)
+
+        for domain in self.static_allowlist:
+            matcher.add_allow(domain)
+            allowed += 1
+
         for path in self.whitelist_paths:
             allowed += matcher.load_file(path, default_allow=True)
+
         with self._lock:
             self._matcher = matcher
             self.last_load_counts = {
@@ -161,6 +178,7 @@ class RuleManager:
                 "allow_rules": allowed,
                 "blocked_domains": len(matcher.blocked),
                 "allowed_domains": len(matcher.allowed),
+                "compatibility_domains": len(self.static_allowlist),
             }
             return dict(self.last_load_counts)
 
@@ -213,4 +231,5 @@ class RuleManager:
             counts = dict(self.last_load_counts)
             allowed = sorted(matcher.allowed)
         counts["whitelist"] = allowed
+        counts["compatibility_allowlist"] = list(self.static_allowlist)
         return counts
