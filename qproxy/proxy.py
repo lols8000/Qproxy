@@ -4,8 +4,9 @@ import asyncio
 import logging
 from urllib.parse import urlsplit
 
-from .blocklist import DomainMatcher, normalize_host
+from .blocklist import RuleManager, normalize_host
 from .config import Config
+from .stats import StatsStore
 
 LOG = logging.getLogger("qproxy")
 MAX_HEADER = 64 * 1024
@@ -83,11 +84,10 @@ def _rewrite_http_request(method: str, target: str, version: str, headers: list[
 
 
 class ProxyServer:
-    def __init__(self, config: Config, matcher: DomainMatcher):
+    def __init__(self, config: Config, rules: RuleManager, stats: StatsStore):
         self.config = config
-        self.matcher = matcher
-        self.blocked_count = 0
-        self.allowed_count = 0
+        self.rules = rules
+        self.stats = stats
 
     async def serve(self) -> None:
         server = await asyncio.start_server(
@@ -130,28 +130,31 @@ class ProxyServer:
     async def _handle_connect(self, target: str, client_r: asyncio.StreamReader, client_w: asyncio.StreamWriter) -> None:
         host, port = _parse_host_port(target, 443)
         host = normalize_host(host)
-        if self.matcher.is_blocked(host):
-            self.blocked_count += 1
-            LOG.info("BLOCK HTTPS %s:%s", host, port)
+        decision = self.rules.evaluate(host)
+        if decision.blocked:
+            self.stats.record(host, "blocked", "https", decision.category, decision.rule)
+            LOG.info("BLOCK HTTPS %s:%s [%s]", host, port, decision.category or "ad")
             await self._send_error(client_w, 403, "Blocked by Qproxy")
             return
 
-        self.allowed_count += 1
+        self.stats.record(host, "allowed", "https", rule=decision.rule)
         if self.config.log_allowed:
             LOG.info("ALLOW HTTPS %s:%s", host, port)
         upstream_r, upstream_w = await asyncio.wait_for(
             asyncio.open_connection(host, port),
             timeout=self.config.connect_timeout_seconds,
         )
-        client_w.write(b"HTTP/1.1 200 Connection Established\r\nProxy-Agent: Qproxy/0.1\r\n\r\n")
+        client_w.write(b"HTTP/1.1 200 Connection Established\r\nProxy-Agent: Qproxy/0.2\r\n\r\n")
         await client_w.drain()
-        await self._relay_bidirectional(client_r, client_w, upstream_r, upstream_w)
+        relayed = await self._relay_bidirectional(client_r, client_w, upstream_r, upstream_w)
+        self.stats.add_bytes(relayed)
 
     async def _handle_http(self, method: str, target: str, version: str, headers: list[tuple[str, str]], client_r: asyncio.StreamReader, client_w: asyncio.StreamWriter) -> None:
         host, port, rewritten = _rewrite_http_request(method, target, version, headers)
-        if self.matcher.is_blocked(host):
-            self.blocked_count += 1
-            LOG.info("BLOCK HTTP %s %s", host, target)
+        decision = self.rules.evaluate(host)
+        if decision.blocked:
+            self.stats.record(host, "blocked", "http", decision.category, decision.rule)
+            LOG.info("BLOCK HTTP %s %s [%s]", host, target, decision.category or "ad")
             client_w.write(
                 b"HTTP/1.1 204 No Content\r\n"
                 b"Connection: close\r\n"
@@ -160,7 +163,7 @@ class ProxyServer:
             await client_w.drain()
             return
 
-        self.allowed_count += 1
+        self.stats.record(host, "allowed", "http", rule=decision.rule)
         if self.config.log_allowed:
             LOG.info("ALLOW HTTP %s %s", host, target)
         upstream_r, upstream_w = await asyncio.wait_for(
@@ -169,15 +172,18 @@ class ProxyServer:
         )
         upstream_w.write(rewritten)
         await upstream_w.drain()
-        await self._relay_bidirectional(client_r, client_w, upstream_r, upstream_w)
+        relayed = await self._relay_bidirectional(client_r, client_w, upstream_r, upstream_w)
+        self.stats.add_bytes(relayed)
 
-    async def _relay_bidirectional(self, a_r, a_w, b_r, b_w) -> None:
+    async def _relay_bidirectional(self, a_r, a_w, b_r, b_w) -> int:
         async def pump(src, dst):
+            total = 0
             try:
                 while True:
                     chunk = await src.read(64 * 1024)
                     if not chunk:
                         break
+                    total += len(chunk)
                     dst.write(chunk)
                     await dst.drain()
             except (ConnectionResetError, BrokenPipeError):
@@ -188,6 +194,7 @@ class ProxyServer:
                         dst.write_eof()
                     except (AttributeError, OSError):
                         pass
+            return total
 
         t1 = asyncio.create_task(pump(a_r, b_w))
         t2 = asyncio.create_task(pump(b_r, a_w))
@@ -195,13 +202,15 @@ class ProxyServer:
         for task in (t1, t2):
             if not task.done():
                 task.cancel()
-        await asyncio.gather(t1, t2, return_exceptions=True)
+        results = await asyncio.gather(t1, t2, return_exceptions=True)
+        relayed = sum(v for v in results if isinstance(v, int))
         if not b_w.is_closing():
             b_w.close()
             try:
                 await b_w.wait_closed()
             except Exception:
                 pass
+        return relayed
 
     @staticmethod
     async def _send_error(writer: asyncio.StreamWriter, status: int, message: str) -> None:
