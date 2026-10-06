@@ -9,3 +9,4 @@ venv/
 data/stats.json
 data/stats.json.tmp
 data/remote/
+data/browser/

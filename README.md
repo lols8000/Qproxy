@@ -1,17 +1,27 @@
-# Qproxy V3
+# Qproxy V3.1
 
-Qproxy combina duas camadas de bloqueio:
+Qproxy combina:
 
-1. **proxy local Python** para anúncios e trackers servidos por domínios separados;
-2. **Qproxy YouTube Companion** para anúncios e elementos patrocinados que aparecem dentro da própria página do YouTube.
+1. **proxy local Python** para anúncios e trackers por domínio;
+2. **Qproxy YouTube Companion** para anúncios e elementos patrocinados dentro do YouTube;
+3. **detecção automática de navegadores instalados** no Windows.
 
-## Uso do proxy no Windows
+## Uso
 
 ```powershell
 python main.py
 ```
 
-O `main.py` recupera proxy travado, inicia o servidor, espera `127.0.0.1:8899` responder, ativa o proxy do Windows e restaura a configuração anterior ao encerrar.
+O `main.py`:
+
+- recupera um proxy antigo que tenha ficado preso;
+- inicia o Qproxy;
+- ativa o proxy do Windows somente depois que o servidor responde;
+- detecta Chrome, Edge, Firefox, Brave e Chromium;
+- gera automaticamente os pacotes da extensão em `data/browser/`;
+- tenta configurar instalação administrada somente quando existe um ID/pacote assinado configurado;
+- abre o painel local;
+- restaura o proxy anterior quando é encerrado.
 
 Painel:
 
@@ -19,81 +29,88 @@ Painel:
 http://127.0.0.1:8900
 ```
 
-## YouTube: instalar o complemento
+## Instalação automática da extensão
 
-O proxy sozinho não consegue separar com segurança vídeo e publicidade quando os dois usam a mesma infraestrutura do YouTube. Por isso a V3 inclui a pasta:
+A V3.1 já faz a parte de detecção e distribuição automaticamente, mas navegadores modernos não permitem que um programa comum instale silenciosamente uma extensão local arbitrária.
 
-```text
-browser_extension
+### Chrome
+
+Para instalação silenciosa suportada, configure um ID publicado/gerenciado em:
+
+```json
+"browser_companion": {
+  "managed_policy_install": true,
+  "chrome_extension_id": "ID_DA_EXTENSAO"
+}
+```
+
+Por padrão, o Qproxy não grava políticas corporativas no navegador.
+
+### Microsoft Edge
+
+Use o ID da extensão publicada no Edge Add-ons:
+
+```json
+"browser_companion": {
+  "managed_policy_install": true,
+  "edge_extension_id": "ID_DA_EXTENSAO"
+}
 ```
 
 ### Firefox
 
-1. Abra `about:debugging#/runtime/this-firefox`.
-2. Clique em **Carregar extensão temporária...**.
-3. Selecione `browser_extension/manifest.json`.
-4. Recarregue o YouTube.
+Firefox aceita instalação automática por política usando XPI assinado. Depois de obter um XPI assinado:
 
-### Chrome / Edge
+```json
+"browser_companion": {
+  "managed_policy_install": true,
+  "firefox_signed_xpi": "data/browser/qproxy-youtube-signed.xpi"
+}
+```
 
-1. Abra `chrome://extensions` ou `edge://extensions`.
-2. Ative o **Modo do desenvolvedor**.
-3. Clique em **Carregar sem compactação / Load unpacked**.
-4. Selecione a pasta `browser_extension`.
+O Qproxy usa o ID:
 
-## O que o complemento do YouTube faz
+```text
+qproxy-youtube@qproxy.local
+```
 
-- observa o estado real de anúncio do player;
-- tenta clicar em diferentes variantes do botão **Pular anúncio**;
-- fecha overlays publicitários;
-- em anúncio ativo sem botão de pular, muta/acelera e tenta avançar o anúncio;
-- restaura mute, volume e velocidade do vídeo normal;
-- esconde cards, slots e elementos patrocinados identificáveis na interface.
+### Brave / Chromium
 
-A detecção de anúncio não depende apenas da existência de contêineres genéricos no DOM, para não acelerar vídeos normais.
+Eles são detectados e o pacote Chromium é criado automaticamente. A integração silenciosa pode ser adicionada quando houver um canal de distribuição assinado apropriado.
 
-## Compatibilidade de reprodução
+## Pacotes gerados
 
-A allowlist interna continua protegendo:
+Ao executar `python main.py`, o Qproxy cria:
 
-- `youtube.com`
-- `youtu.be`
-- `ytimg.com`
-- `googlevideo.com`
-- `youtubei.googleapis.com`
-- `youtube.googleapis.com`
-- `youtube-nocookie.com`
+```text
+data/browser/qproxy-youtube-companion.zip
+data/browser/qproxy-youtube-companion.xpi
+```
 
-Ela tem prioridade sobre EasyList/EasyPrivacy para impedir que regras remotas quebrem a reprodução.
+O XPI gerado localmente é útil para empacotamento/teste, mas não é considerado assinado pelo Firefox comum.
 
-## Limite técnico
+## Por que não forçar a instalação local de qualquer jeito?
 
-Nenhum bloqueador baseado apenas em domínio consegue eliminar todos os anúncios first-party do YouTube sem risco de bloquear o vídeo principal. A extensão reduz essa lacuna atuando no DOM/player, mas o YouTube pode alterar seletores e fluxo de anúncios ao longo do tempo.
+Chrome/Chromium tratam políticas de extensão como mecanismo administrativo. Distribuir software de consumidor que altera políticas corporativas para instalar extensões fora do fluxo oficial pode ser classificado como comportamento indesejado/malware.
+
+Por isso o Qproxy só escreve políticas quando `managed_policy_install=true` **e** há um ID/artefato de distribuição configurado.
+
+## YouTube
+
+A extensão continua:
+
+- tentando clicar em **Pular anúncio**;
+- fechando overlays;
+- acelerando/mutando anúncios ativos quando necessário;
+- restaurando volume e velocidade do vídeo normal;
+- ocultando cards e slots patrocinados identificáveis.
+
+A allowlist de reprodução protege domínios essenciais como `youtube.com`, `googlevideo.com` e `ytimg.com`.
 
 ## Se a internet ficar presa
 
 ```powershell
 python main.py --restore-proxy
-```
-
-## Instalação opcional do pacote Python
-
-```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -e .
-```
-
-## Execução avançada
-
-```powershell
-python -m qproxy --config config.example.json
-```
-
-## Atualizar listas
-
-```powershell
-python -m qproxy --config config.example.json --update-lists
 ```
 
 ## Testes

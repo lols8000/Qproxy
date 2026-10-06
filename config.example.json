@@ -22,6 +22,26 @@
   "update_on_start": true,
   "update_interval_hours": 24,
   "remote_download_timeout_seconds": 20,
+
+  "browser_companion": {
+    "auto_detect": true,
+    "auto_install": true,
+    "package_dir": "data/browser",
+    "managed_policy_install": false,
+
+    "chrome_extension_id": null,
+    "chrome_update_url": "https://clients2.google.com/service/update2/crx",
+
+    "edge_extension_id": null,
+    "edge_update_url": "https://edge.microsoft.com/extensionwebstorebase/v1/crx",
+
+    "chromium_extension_id": null,
+    "chromium_update_url": "https://clients2.google.com/service/update2/crx",
+
+    "firefox_extension_id": "qproxy-youtube@qproxy.local",
+    "firefox_signed_xpi": null
+  },
+
   "remote_blocklists": [
     {
       "name": "EasyList",

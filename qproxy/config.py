@@ -50,6 +50,30 @@ class RemoteListSource:
 
 
 @dataclass(slots=True)
+class BrowserCompanionConfig:
+    auto_detect: bool = True
+    auto_install: bool = True
+    package_dir: str = "data/browser"
+    managed_policy_install: bool = False
+
+    chrome_extension_id: str | None = None
+    chrome_update_url: str = "https://clients2.google.com/service/update2/crx"
+
+    edge_extension_id: str | None = None
+    edge_update_url: str = "https://edge.microsoft.com/extensionwebstorebase/v1/crx"
+
+    chromium_extension_id: str | None = None
+    chromium_update_url: str = "https://clients2.google.com/service/update2/crx"
+
+    firefox_extension_id: str = "qproxy-youtube@qproxy.local"
+    firefox_signed_xpi: str | None = None
+
+    @classmethod
+    def from_dict(cls, value: dict[str, Any] | None) -> "BrowserCompanionConfig":
+        return cls(**(value or {}))
+
+
+@dataclass(slots=True)
 class Config:
     listen_host: str = "127.0.0.1"
     listen_port: int = 8899
@@ -75,6 +99,8 @@ class Config:
     update_interval_hours: float = 24.0
     remote_download_timeout_seconds: float = 20.0
 
+    browser_companion: BrowserCompanionConfig = field(default_factory=BrowserCompanionConfig)
+
     @classmethod
     def load(cls, path: str | Path | None) -> "Config":
         if path is None:
@@ -83,4 +109,6 @@ class Config:
         data = json.loads(p.read_text(encoding="utf-8"))
         if "remote_blocklists" in data:
             data["remote_blocklists"] = [RemoteListSource.from_dict(v) for v in data["remote_blocklists"]]
+        if "browser_companion" in data:
+            data["browser_companion"] = BrowserCompanionConfig.from_dict(data["browser_companion"])
         return cls(**data)
