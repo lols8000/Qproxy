@@ -93,6 +93,7 @@ def _registry_app_path(exe_name: str) -> list[Path]:
 def detect_installed_browsers(
     env: dict[str, str] | None = None,
     extra_candidates: dict[str, list[Path]] | None = None,
+    use_registry: bool = True,
 ) -> list[BrowserInfo]:
     env = dict(os.environ if env is None else env)
     extra_candidates = extra_candidates or {}
