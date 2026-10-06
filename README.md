@@ -1,93 +1,66 @@
-# Qproxy
+# Qproxy V2
 
-Qproxy é um proxy local HTTP/HTTPS em Python para bloquear anúncios e rastreadores por domínio, sem descriptografar o tráfego HTTPS.
+Proxy local HTTP/HTTPS em Python para bloquear anúncios e rastreadores por **domínio**, com painel local, estatísticas, whitelist e atualização automática de listas.
 
-## O que ele faz
+## O que mudou na V2
 
-- aceita conexões de proxy HTTP em `127.0.0.1:8899`;
-- intercepta `CONNECT` de HTTPS e bloqueia hosts conhecidos antes de criar o túnel;
-- bloqueia domínios e subdomínios por lista local;
-- suporta whitelist;
-- entende listas em formato simples, `hosts` e regras básicas `||dominio^`;
-- registra bloqueios no console;
-- inclui scripts PowerShell para ativar/desativar o proxy do Windows.
+- bloqueio HTTP e HTTPS por host sem descriptografar TLS;
+- EasyList e EasyPrivacy baixadas e armazenadas em cache local;
+- atualização automática (24 h por padrão) e atualização manual pelo painel;
+- recarga atômica das regras sem reiniciar o proxy;
+- classificação de bloqueios em `ad` e `tracker`;
+- painel local em `http://127.0.0.1:8900`;
+- métricas, top domínios bloqueados e atividade recente;
+- whitelist editável no painel;
+- estatísticas persistidas em `data/stats.json`;
+- endpoint administrativo protegido por token efêmero e dashboard restrito a localhost por padrão;
+- sem dependências externas de runtime.
 
-> Limitação importante: como não há MITM, Qproxy não enxerga o caminho interno de uma URL HTTPS. Portanto ele bloqueia por domínio. Anúncios servidos pelo mesmo domínio do conteúdo (ex.: alguns anúncios embutidos em feeds/vídeos) exigem extensão de navegador ou filtragem adicional.
+## Limite técnico importante
+
+Qproxy **não faz MITM** e não instala certificado raiz. Em HTTPS ele enxerga o host do túnel `CONNECT`, mas não o caminho interno da URL. Portanto, ele bloqueia muito bem publicidade e tracking servidos por domínios separados, mas não remove de forma confiável anúncios first-party embutidos no mesmo domínio do conteúdo (por exemplo, certos anúncios dentro de serviços de vídeo).
+
+Uma futura V3 pode adicionar uma extensão de navegador para filtragem cosmética e regras por URL/DOM, mantendo o proxy sem interceptação TLS.
 
 ## Instalação
 
 Requer Python 3.10+.
 
 ```powershell
-git clone https://github.com/lols8000/Qproxy.git
-cd Qproxy
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -e .
 ```
 
-## Executar
+## Rodar
 
 ```powershell
 qproxy --config config.example.json
 ```
 
-Ou sem instalar o comando:
-
-```powershell
-python -m qproxy --config config.example.json
-```
-
-Depois configure o navegador/sistema para usar:
+Proxy:
 
 ```text
-HTTP proxy: 127.0.0.1
-Porta:      8899
-HTTPS:      usar o mesmo proxy
+127.0.0.1:8899
 ```
 
-No Windows você pode usar:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\enable_windows_proxy.ps1
-```
-
-Para desfazer:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\disable_windows_proxy.ps1
-```
-
-## Configuração
-
-Copie `config.example.json` se quiser alterar porta/listas:
-
-```json
-{
-  "listen_host": "127.0.0.1",
-  "listen_port": 8899,
-  "blocklists": ["data/blocklist.txt"],
-  "whitelists": ["data/whitelist.txt"],
-  "connect_timeout_seconds": 10,
-  "log_allowed": false
-}
-```
-
-## Formatos de lista aceitos
+Painel:
 
 ```text
-doubleclick.net
-0.0.0.0 googlesyndication.com
-127.0.0.1 ads.example.com
-||tracker.example.org^
+http://127.0.0.1:8900
 ```
 
-Whitelist:
+## Atualizar listas sem iniciar o proxy
 
-```text
-example.com
-@@||allowed.example.org^
+```powershell
+qproxy --config config.example.json --update-lists
 ```
+
+As listas remotas padrão são EasyList e EasyPrivacy. O Qproxy extrai apenas regras que podem ser convertidas com segurança em domínio/host. Regras cosméticas e regras que dependem do conteúdo HTTPS são ignoradas.
+
+## Configuração do Windows
+
+Use os scripts em `scripts/` para ativar/desativar o proxy do Windows ou configure manualmente o endereço `127.0.0.1` porta `8899`.
 
 ## Testes
 
@@ -95,6 +68,14 @@ example.com
 python -m unittest discover -s tests -v
 ```
 
-## Próximos passos
+## Segurança
 
-A evolução natural é adicionar atualizador de blocklists, painel local, estatísticas persistidas e uma extensão de navegador para filtragem cosmética.
+- O proxy e o dashboard escutam apenas em `127.0.0.1` por padrão.
+- Não exponha o proxy em `0.0.0.0` sem entender que isso pode permitir uso por outras máquinas da rede.
+- O dashboard não descriptografa nem armazena conteúdo HTTPS.
+- A atividade recente registra hostname, ação e protocolo, não o conteúdo das páginas HTTPS.
+- Operações de alteração no painel exigem um token administrativo efêmero inserido apenas na página local.
+
+## Licença
+
+Código do Qproxy: MIT. Listas de terceiros possuem suas próprias licenças e são baixadas diretamente de seus mantenedores; não são incorporadas ao repositório.
