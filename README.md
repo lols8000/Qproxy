@@ -1,41 +1,31 @@
-# Qproxy V2
+# Qproxy V2.1
 
 Proxy local HTTP/HTTPS em Python para bloquear anúncios e rastreadores por **domínio**, com painel local, estatísticas, whitelist e atualização automática de listas.
 
-## O que mudou na V2
+## Uso simples no Windows
 
-- bloqueio HTTP e HTTPS por host sem descriptografar TLS;
-- EasyList e EasyPrivacy baixadas e armazenadas em cache local;
-- atualização automática (24 h por padrão) e atualização manual pelo painel;
-- recarga atômica das regras sem reiniciar o proxy;
-- classificação de bloqueios em `ad` e `tracker`;
-- painel local em `http://127.0.0.1:8900`;
-- métricas, top domínios bloqueados e atividade recente;
-- whitelist editável no painel;
-- estatísticas persistidas em `data/stats.json`;
-- endpoint administrativo protegido por token efêmero e dashboard restrito a localhost por padrão;
-- sem dependências externas de runtime.
-
-## Limite técnico importante
-
-Qproxy **não faz MITM** e não instala certificado raiz. Em HTTPS ele enxerga o host do túnel `CONNECT`, mas não o caminho interno da URL. Portanto, ele bloqueia muito bem publicidade e tracking servidos por domínios separados, mas não remove de forma confiável anúncios first-party embutidos no mesmo domínio do conteúdo (por exemplo, certos anúncios dentro de serviços de vídeo).
-
-Uma futura V3 pode adicionar uma extensão de navegador para filtragem cosmética e regras por URL/DOM, mantendo o proxy sem interceptação TLS.
-
-## Instalação
-
-Requer Python 3.10+.
+A forma recomendada agora é apenas:
 
 ```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -e .
+python main.py
 ```
 
-## Rodar
+O `main.py` faz sozinho:
 
-```powershell
-qproxy --config config.example.json
+1. recupera um proxy antigo do Qproxy que tenha ficado preso;
+2. inicia o servidor local;
+3. espera a porta `127.0.0.1:8899` realmente responder;
+4. só então ativa o proxy do Windows;
+5. abre o painel local;
+6. ao fechar ou pressionar `Ctrl+C`, restaura a configuração de proxy anterior;
+7. mantém um watchdog separado para tentar restaurar o proxy mesmo se o processo principal morrer abruptamente.
+
+Não é necessário executar os arquivos `.ps1` para o uso normal.
+
+Painel:
+
+```text
+http://127.0.0.1:8900
 ```
 
 Proxy:
@@ -44,23 +34,72 @@ Proxy:
 127.0.0.1:8899
 ```
 
-Painel:
+### Se a internet tiver ficado sem acesso por uma execução antiga
 
-```text
-http://127.0.0.1:8900
-```
-
-## Atualizar listas sem iniciar o proxy
+Com a versão nova:
 
 ```powershell
-qproxy --config config.example.json --update-lists
+python main.py --restore-proxy
 ```
 
-As listas remotas padrão são EasyList e EasyPrivacy. O Qproxy extrai apenas regras que podem ser convertidas com segurança em domínio/host. Regras cosméticas e regras que dependem do conteúdo HTTPS são ignoradas.
+Ou desative manualmente em:
 
-## Configuração do Windows
+**Configurações → Rede e Internet → Proxy → Usar um servidor proxy → Desativado**
 
-Use os scripts em `scripts/` para ativar/desativar o proxy do Windows ou configure manualmente o endereço `127.0.0.1` porta `8899`.
+## Instalação
+
+Requer Python 3.10+.
+
+A execução direta não exige instalar o pacote:
+
+```powershell
+python main.py
+```
+
+Opcionalmente, para instalar o comando `qproxy`:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -e .
+```
+
+## Execução avançada
+
+Sem alterar automaticamente o proxy do Windows:
+
+```powershell
+python -m qproxy --config config.example.json
+```
+
+Ou, se o pacote foi instalado:
+
+```powershell
+qproxy --config config.example.json
+```
+
+## Recursos
+
+- bloqueio HTTP e HTTPS por host sem descriptografar TLS;
+- EasyList e EasyPrivacy baixadas e armazenadas em cache local;
+- atualização automática e manual das listas;
+- recarga das regras sem reiniciar;
+- classificação de bloqueios em `ad` e `tracker`;
+- painel local;
+- métricas, top domínios bloqueados e atividade recente;
+- whitelist editável;
+- estatísticas persistentes;
+- sem dependências externas de runtime.
+
+## Limite técnico
+
+Qproxy **não faz MITM** e não instala certificado raiz. Em HTTPS ele enxerga o host do túnel `CONNECT`, mas não o caminho interno da URL. Por isso bloqueia bem publicidade e tracking servidos por domínios separados, mas não remove de forma confiável anúncios first-party no mesmo domínio do conteúdo.
+
+## Atualizar listas
+
+```powershell
+python -m qproxy --config config.example.json --update-lists
+```
 
 ## Testes
 
@@ -70,12 +109,11 @@ python -m unittest discover -s tests -v
 
 ## Segurança
 
-- O proxy e o dashboard escutam apenas em `127.0.0.1` por padrão.
-- Não exponha o proxy em `0.0.0.0` sem entender que isso pode permitir uso por outras máquinas da rede.
-- O dashboard não descriptografa nem armazena conteúdo HTTPS.
-- A atividade recente registra hostname, ação e protocolo, não o conteúdo das páginas HTTPS.
-- Operações de alteração no painel exigem um token administrativo efêmero inserido apenas na página local.
+- proxy e dashboard usam `127.0.0.1` por padrão;
+- o Qproxy não descriptografa conteúdo HTTPS;
+- o `main.py` salva temporariamente as configurações anteriores de proxy para restaurá-las na saída;
+- não exponha o proxy em `0.0.0.0` sem entender as implicações.
 
 ## Licença
 
-Código do Qproxy: MIT. Listas de terceiros possuem suas próprias licenças e são baixadas diretamente de seus mantenedores; não são incorporadas ao repositório.
+Código do Qproxy: MIT. Listas de terceiros possuem suas próprias licenças e são baixadas diretamente dos mantenedores.
