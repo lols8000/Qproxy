@@ -62,26 +62,34 @@ _BROWSER_PATHS = {
             ("LOCALAPPDATA", r"BraveSoftware\Brave-Browser\Application\brave.exe"),
         ],
     ),
-    "chromium": (
-        ("Chromium", "chrome.exe"),
-        [
-            ("LOCALAPPDATA", r"Chromium\Application\chrome.exe"),
-            ("PROGRAMFILES", r"Chromium\Application\chrome.exe"),
-            ("PROGRAMFILES(X86)", r"Chromium\Application\chrome.exe"),
-        ],
-    ),
+}
+
+_CHROMIUM_POLICY_PATHS = {
+    "chrome": r"Software\Policies\Google\Chrome\ExtensionInstallForcelist",
+    "edge": r"Software\Policies\Microsoft\Edge\ExtensionInstallForcelist",
+    "brave": r"Software\Policies\BraveSoftware\Brave\ExtensionInstallForcelist",
 }
 
 
 def _registry_app_path(exe_name: str) -> list[Path]:
     if not IS_WINDOWS:
         return []
+
     paths: list[Path] = []
     subkey = rf"Software\Microsoft\Windows\CurrentVersion\App Paths\{exe_name}"
     for hive in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
-        for view in (0, getattr(winreg, "KEY_WOW64_64KEY", 0), getattr(winreg, "KEY_WOW64_32KEY", 0)):
+        for view in (
+            0,
+            getattr(winreg, "KEY_WOW64_64KEY", 0),
+            getattr(winreg, "KEY_WOW64_32KEY", 0),
+        ):
             try:
-                with winreg.OpenKey(hive, subkey, 0, winreg.KEY_READ | view) as key:
+                with winreg.OpenKey(
+                    hive,
+                    subkey,
+                    0,
+                    winreg.KEY_READ | view,
+                ) as key:
                     value, _ = winreg.QueryValueEx(key, None)
                     if value:
                         paths.append(Path(str(value)))
@@ -98,37 +106,50 @@ def detect_installed_browsers(
     env = dict(os.environ if env is None else env)
     extra_candidates = extra_candidates or {}
     found: list[BrowserInfo] = []
-    seen: set[tuple[str, str]] = set()
+    seen_paths: set[str] = set()
 
     for key, ((name, exe_name), relative_paths) in _BROWSER_PATHS.items():
         candidates: list[Path] = []
+
         for env_name, suffix in relative_paths:
             base = env.get(env_name)
             if base:
                 candidates.append(Path(base) / suffix)
-        if use_registry and key != "chromium":
+
+        if use_registry:
             candidates.extend(_registry_app_path(exe_name))
+
         candidates.extend(extra_candidates.get(key, []))
 
         for candidate in candidates:
             try:
-                exists = candidate.is_file()
+                if not candidate.is_file():
+                    continue
+                resolved_path = candidate.resolve()
             except OSError:
-                exists = False
-            if not exists:
                 continue
-            resolved = str(candidate.resolve()).casefold()
-            marker = (key, resolved)
-            if marker in seen:
+
+            marker = str(resolved_path).casefold()
+            if marker in seen_paths:
                 continue
-            seen.add(marker)
-            found.append(BrowserInfo(key=key, name=name, executable=candidate.resolve()))
+
+            seen_paths.add(marker)
+            found.append(
+                BrowserInfo(
+                    key=key,
+                    name=name,
+                    executable=resolved_path,
+                )
+            )
             break
 
     return found
 
 
-def build_extension_packages(project_root: Path, output_dir: Path) -> tuple[Path, Path]:
+def build_extension_packages(
+    project_root: Path,
+    output_dir: Path,
+) -> tuple[Path, Path]:
     extension_dir = project_root / "browser_extension"
     if not (extension_dir / "manifest.json").is_file():
         raise FileNotFoundError("browser_extension/manifest.json não encontrado")
@@ -140,14 +161,19 @@ def build_extension_packages(project_root: Path, output_dir: Path) -> tuple[Path
     files = [
         path
         for path in extension_dir.rglob("*")
-        if path.is_file() and path.name not in {"README.md"} and "__pycache__" not in path.parts
+        if path.is_file()
+        and path.name != "README.md"
+        and "__pycache__" not in path.parts
     ]
 
     for target in (zip_path, xpi_path):
         tmp = target.with_suffix(target.suffix + ".tmp")
         with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as archive:
             for path in files:
-                archive.write(path, path.relative_to(extension_dir).as_posix())
+                archive.write(
+                    path,
+                    path.relative_to(extension_dir).as_posix(),
+                )
         tmp.replace(target)
 
     return zip_path, xpi_path
@@ -156,6 +182,7 @@ def build_extension_packages(project_root: Path, output_dir: Path) -> tuple[Path
 def _next_policy_slot(key, desired_value: str) -> tuple[str, bool]:
     existing_names: set[str] = set()
     index = 0
+
     while True:
         try:
             name, value, _ = winreg.EnumValue(key, index)
@@ -169,11 +196,18 @@ def _next_policy_slot(key, desired_value: str) -> tuple[str, bool]:
     slot = 1
     while str(slot) in existing_names:
         slot += 1
+
     return str(slot), False
 
 
-def _install_chromium_policy(policy_path: str, extension_id: str, update_url: str) -> None:
+def _install_chromium_policy(
+    browser_key: str,
+    extension_id: str,
+    update_url: str,
+) -> None:
+    policy_path = _CHROMIUM_POLICY_PATHS[browser_key]
     value = f"{extension_id};{update_url}"
+
     with winreg.CreateKeyEx(
         winreg.HKEY_CURRENT_USER,
         policy_path,
@@ -182,10 +216,19 @@ def _install_chromium_policy(policy_path: str, extension_id: str, update_url: st
     ) as key:
         slot, already = _next_policy_slot(key, value)
         if not already:
-            winreg.SetValueEx(key, slot, 0, winreg.REG_SZ, value)
+            winreg.SetValueEx(
+                key,
+                slot,
+                0,
+                winreg.REG_SZ,
+                value,
+            )
 
 
-def _install_firefox_policy(extension_id: str, install_url: str) -> None:
+def _install_firefox_policy(
+    extension_id: str,
+    install_url: str,
+) -> None:
     policy = {
         extension_id: {
             "installation_mode": "force_installed",
@@ -193,22 +236,47 @@ def _install_firefox_policy(extension_id: str, install_url: str) -> None:
         }
     }
     compact = json.dumps(policy, separators=(",", ":"))
+
     with winreg.CreateKeyEx(
         winreg.HKEY_CURRENT_USER,
         r"Software\Policies\Mozilla\Firefox",
         0,
         winreg.KEY_SET_VALUE,
     ) as key:
-        winreg.SetValueEx(key, "ExtensionSettings", 0, winreg.REG_MULTI_SZ, [compact])
+        winreg.SetValueEx(
+            key,
+            "ExtensionSettings",
+            0,
+            winreg.REG_MULTI_SZ,
+            [compact],
+        )
 
 
-def _resolved_install_url(value: str, project_root: Path) -> str:
+def _resolved_install_url(
+    value: str,
+    project_root: Path,
+) -> str:
     if value.startswith(("https://", "http://", "file:///")):
         return value
+
     path = Path(value)
     if not path.is_absolute():
         path = (project_root / path).resolve()
+
     return path.as_uri()
+
+
+def _chromium_distribution(
+    browser_key: str,
+    config: BrowserCompanionConfig,
+) -> tuple[str | None, str]:
+    if browser_key == "chrome":
+        return config.chrome_extension_id, config.chrome_update_url
+    if browser_key == "edge":
+        return config.edge_extension_id, config.edge_update_url
+    if browser_key == "brave":
+        return config.brave_extension_id, config.brave_update_url
+    raise ValueError(f"Navegador Chromium não suportado: {browser_key}")
 
 
 def setup_browser_companion(
@@ -222,93 +290,127 @@ def setup_browser_companion(
     )
 
     results: list[BrowserSetupResult] = []
+
     if not config.auto_install:
         for browser in browsers:
             results.append(
-                BrowserSetupResult(browser, "detected", "instalação automática desativada na configuração")
+                BrowserSetupResult(
+                    browser,
+                    "detected",
+                    "detectado; instalação automática desativada",
+                )
             )
         return browsers, results, packages
 
     for browser in browsers:
-        if browser.key == "chrome":
-            if config.managed_policy_install and config.chrome_extension_id:
-                _install_chromium_policy(
-                    r"Software\Policies\Google\Chrome\ExtensionInstallForcelist",
-                    config.chrome_extension_id,
-                    config.chrome_update_url,
-                )
-                results.append(BrowserSetupResult(browser, "policy_configured", "política de instalação configurada"))
-            else:
-                results.append(
-                    BrowserSetupResult(
-                        browser,
-                        "store_required",
-                        "Chrome requer extensão publicada/gerenciada para instalação silenciosa",
-                    )
-                )
-        elif browser.key == "edge":
-            if config.managed_policy_install and config.edge_extension_id:
-                _install_chromium_policy(
-                    r"Software\Policies\Microsoft\Edge\ExtensionInstallForcelist",
-                    config.edge_extension_id,
-                    config.edge_update_url,
-                )
-                results.append(BrowserSetupResult(browser, "policy_configured", "política de instalação configurada"))
-            else:
-                results.append(
-                    BrowserSetupResult(
-                        browser,
-                        "store_required",
-                        "Edge requer ID publicado para instalação silenciosa segura em Windows comum",
-                    )
-                )
-        elif browser.key == "chromium":
-            if config.managed_policy_install and config.chromium_extension_id:
-                _install_chromium_policy(
-                    r"Software\Policies\Chromium\ExtensionInstallForcelist",
-                    config.chromium_extension_id,
-                    config.chromium_update_url,
-                )
-                results.append(BrowserSetupResult(browser, "policy_configured", "política Chromium configurada"))
-            else:
-                results.append(
-                    BrowserSetupResult(
-                        browser,
-                        "package_ready",
-                        f"pacote preparado em {packages[0]}",
-                    )
-                )
-        elif browser.key == "firefox":
-            if config.managed_policy_install and config.firefox_signed_xpi:
-                install_url = _resolved_install_url(config.firefox_signed_xpi, project_root)
-                _install_firefox_policy(config.firefox_extension_id, install_url)
-                results.append(BrowserSetupResult(browser, "policy_configured", "política Firefox configurada"))
-            else:
-                results.append(
-                    BrowserSetupResult(
-                        browser,
-                        "signed_xpi_required",
-                        "Firefox requer XPI assinado para instalação persistente automática",
-                    )
-                )
-        elif browser.key == "brave":
-            results.append(
-                BrowserSetupResult(
-                    browser,
-                    "package_ready",
-                    f"Brave detectado; pacote preparado em {packages[0]}",
-                )
+        if browser.key in {"chrome", "edge", "brave"}:
+            extension_id, update_url = _chromium_distribution(
+                browser.key,
+                config,
             )
+
+            if (
+                config.managed_policy_install
+                and extension_id
+                and IS_WINDOWS
+            ):
+                _install_chromium_policy(
+                    browser.key,
+                    extension_id,
+                    update_url,
+                )
+                results.append(
+                    BrowserSetupResult(
+                        browser,
+                        "install_configured",
+                        "política de instalação automática aplicada",
+                    )
+                )
+            elif extension_id:
+                results.append(
+                    BrowserSetupResult(
+                        browser,
+                        "distribution_ready",
+                        "ID configurado; habilite managed_policy_install para aplicar a política",
+                    )
+                )
+            else:
+                store_name = {
+                    "chrome": "Chrome Web Store",
+                    "edge": "Microsoft Edge Add-ons",
+                    "brave": "Chrome Web Store/canal gerenciado do Brave",
+                }[browser.key]
+                results.append(
+                    BrowserSetupResult(
+                        browser,
+                        "publication_required",
+                        f"detectado; falta ID publicado em {store_name}",
+                    )
+                )
+
+        elif browser.key == "firefox":
+            if (
+                config.managed_policy_install
+                and config.firefox_signed_xpi
+                and IS_WINDOWS
+            ):
+                install_url = _resolved_install_url(
+                    config.firefox_signed_xpi,
+                    project_root,
+                )
+                _install_firefox_policy(
+                    config.firefox_extension_id,
+                    install_url,
+                )
+                results.append(
+                    BrowserSetupResult(
+                        browser,
+                        "install_configured",
+                        "política Firefox aplicada usando XPI assinado",
+                    )
+                )
+            elif config.firefox_signed_xpi:
+                results.append(
+                    BrowserSetupResult(
+                        browser,
+                        "distribution_ready",
+                        "XPI assinado configurado; habilite managed_policy_install",
+                    )
+                )
+            else:
+                results.append(
+                    BrowserSetupResult(
+                        browser,
+                        "signature_required",
+                        "detectado; falta XPI assinado/publicado",
+                    )
+                )
 
     return browsers, results, packages
 
 
-def print_browser_setup(results: list[BrowserSetupResult], packages: tuple[Path, Path]) -> None:
+def print_browser_setup(
+    results: list[BrowserSetupResult],
+    packages: tuple[Path, Path],
+) -> None:
     print()
-    print(" Navegadores / complemento:")
+    print(" Navegadores / Qproxy Companion:")
+
     if not results:
-        print("   Nenhum navegador compatível detectado.")
+        print("   Nenhum Chrome, Edge, Firefox ou Brave detectado.")
+
+    labels = {
+        "detected": "DETECTADO",
+        "publication_required": "AGUARDANDO PUBLICAÇÃO",
+        "signature_required": "AGUARDANDO ASSINATURA",
+        "distribution_ready": "PRONTO PARA INSTALAR",
+        "install_configured": "INSTALAÇÃO CONFIGURADA",
+    }
+
     for result in results:
-        print(f"   - {result.browser.name}: {result.status} — {result.detail}")
-    print(f"   Pacote Chromium: {packages[0]}")
-    print(f"   Pacote Firefox:  {packages[1]}")
+        label = labels.get(result.status, result.status.upper())
+        print(f"   - {result.browser.name}: {label}")
+        print(f"     {result.detail}")
+
+    print(f"   Pacote Chrome/Edge/Brave: {packages[0]}")
+    print(f"   Pacote Firefox:           {packages[1]}")
