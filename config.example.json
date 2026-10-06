@@ -1,0 +1,30 @@
+{
+  "listen_host": "127.0.0.1",
+  "listen_port": 8899,
+  "blocklists": ["data/blocklist.txt"],
+  "whitelists": ["data/whitelist.txt"],
+  "connect_timeout_seconds": 10,
+  "log_allowed": false,
+  "dashboard_enabled": true,
+  "dashboard_host": "127.0.0.1",
+  "dashboard_port": 8900,
+  "stats_file": "data/stats.json",
+  "remote_cache_dir": "data/remote",
+  "update_on_start": true,
+  "update_interval_hours": 24,
+  "remote_download_timeout_seconds": 20,
+  "remote_blocklists": [
+    {
+      "name": "EasyList",
+      "url": "https://easylist.to/easylist/easylist.txt",
+      "category": "ad",
+      "filename": "easylist.txt"
+    },
+    {
+      "name": "EasyPrivacy",
+      "url": "https://easylist.to/easylist/easyprivacy.txt",
+      "category": "tracker",
+      "filename": "easyprivacy.txt"
+    }
+  ]
+}

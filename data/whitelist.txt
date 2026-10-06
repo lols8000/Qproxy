@@ -1,0 +1,2 @@
+# Um domínio por linha. A whitelist tem prioridade sobre o bloqueio.
+# example.com

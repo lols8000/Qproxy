@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "qproxy-adblock"
+version = "0.2.0"
+description = "Lightweight local HTTP/HTTPS domain-blocking proxy with dashboard and remote lists"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{name = "Qproxy"}]
+license = {text = "MIT"}
+
+[project.scripts]
+qproxy = "qproxy.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["qproxy*"]
