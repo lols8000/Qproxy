@@ -27,7 +27,7 @@ def build_runtime(config: Config, config_path: str | None):
     for source in config.remote_blocklists:
         block_sources.append((updater.source_path(cache_dir, source), source.category))
     whitelist_paths = [_resolve(base, p) for p in config.whitelists]
-    rules = RuleManager(block_sources, whitelist_paths)
+    rules = RuleManager(block_sources, whitelist_paths, config.compatibility_allowlist)
     stats = StatsStore(_resolve(base, config.stats_file))
     return rules, stats, updater
 
