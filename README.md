@@ -1,16 +1,17 @@
-# Qproxy V2.2
+# Qproxy V3
 
-Proxy local HTTP/HTTPS em Python para bloquear anúncios e rastreadores por **domínio**, com painel local, estatísticas, whitelist e atualização automática de listas.
+Qproxy combina duas camadas de bloqueio:
 
-## Uso simples no Windows
+1. **proxy local Python** para anúncios e trackers servidos por domínios separados;
+2. **Qproxy YouTube Companion** para anúncios e elementos patrocinados que aparecem dentro da própria página do YouTube.
 
-A forma recomendada é:
+## Uso do proxy no Windows
 
 ```powershell
 python main.py
 ```
 
-O `main.py` recupera proxy travado, inicia o servidor, espera a porta `127.0.0.1:8899` responder, ativa o proxy do Windows e restaura a configuração anterior ao encerrar.
+O `main.py` recupera proxy travado, inicia o servidor, espera `127.0.0.1:8899` responder, ativa o proxy do Windows e restaura a configuração anterior ao encerrar.
 
 Painel:
 
@@ -18,11 +19,42 @@ Painel:
 http://127.0.0.1:8900
 ```
 
-## Compatibilidade com YouTube
+## YouTube: instalar o complemento
 
-A V2.2 adiciona uma allowlist de compatibilidade para infraestrutura essencial do YouTube. Ela tem prioridade sobre EasyList/EasyPrivacy e evita que regras remotas impeçam a reprodução dos vídeos.
+O proxy sozinho não consegue separar com segurança vídeo e publicidade quando os dois usam a mesma infraestrutura do YouTube. Por isso a V3 inclui a pasta:
 
-Domínios protegidos por padrão:
+```text
+browser_extension
+```
+
+### Firefox
+
+1. Abra `about:debugging#/runtime/this-firefox`.
+2. Clique em **Carregar extensão temporária...**.
+3. Selecione `browser_extension/manifest.json`.
+4. Recarregue o YouTube.
+
+### Chrome / Edge
+
+1. Abra `chrome://extensions` ou `edge://extensions`.
+2. Ative o **Modo do desenvolvedor**.
+3. Clique em **Carregar sem compactação / Load unpacked**.
+4. Selecione a pasta `browser_extension`.
+
+## O que o complemento do YouTube faz
+
+- observa o estado real de anúncio do player;
+- tenta clicar em diferentes variantes do botão **Pular anúncio**;
+- fecha overlays publicitários;
+- em anúncio ativo sem botão de pular, muta/acelera e tenta avançar o anúncio;
+- restaura mute, volume e velocidade do vídeo normal;
+- esconde cards, slots e elementos patrocinados identificáveis na interface.
+
+A detecção de anúncio não depende apenas da existência de contêineres genéricos no DOM, para não acelerar vídeos normais.
+
+## Compatibilidade de reprodução
+
+A allowlist interna continua protegendo:
 
 - `youtube.com`
 - `youtu.be`
@@ -32,9 +64,11 @@ Domínios protegidos por padrão:
 - `youtube.googleapis.com`
 - `youtube-nocookie.com`
 
-Essa lista pode ser alterada em `compatibility_allowlist` no JSON de configuração.
+Ela tem prioridade sobre EasyList/EasyPrivacy para impedir que regras remotas quebrem a reprodução.
 
-Como o Qproxy não faz MITM, ele não consegue distinguir com segurança um vídeo normal de um anúncio quando ambos usam a mesma infraestrutura do YouTube. A prioridade nessa lista é preservar a reprodução.
+## Limite técnico
+
+Nenhum bloqueador baseado apenas em domínio consegue eliminar todos os anúncios first-party do YouTube sem risco de bloquear o vídeo principal. A extensão reduz essa lacuna atuando no DOM/player, mas o YouTube pode alterar seletores e fluxo de anúncios ao longo do tempo.
 
 ## Se a internet ficar presa
 
@@ -42,15 +76,7 @@ Como o Qproxy não faz MITM, ele não consegue distinguir com segurança um víd
 python main.py --restore-proxy
 ```
 
-## Instalação
-
-Requer Python 3.10+. Para uso direto:
-
-```powershell
-python main.py
-```
-
-Instalação opcional:
+## Instalação opcional do pacote Python
 
 ```powershell
 python -m venv .venv
@@ -63,21 +89,6 @@ pip install -e .
 ```powershell
 python -m qproxy --config config.example.json
 ```
-
-## Recursos
-
-- bloqueio HTTP e HTTPS por host sem descriptografar TLS;
-- EasyList e EasyPrivacy;
-- atualização automática/manual;
-- allowlist de compatibilidade;
-- whitelist editável;
-- dashboard local;
-- métricas e histórico;
-- sem dependências externas de runtime.
-
-## Limite técnico
-
-Qproxy **não faz MITM**. Em HTTPS ele decide pelo host do túnel `CONNECT`, não pelo caminho interno da URL. Por isso o bloqueio por domínio não consegue separar todo anúncio first-party do conteúdo principal.
 
 ## Atualizar listas
 
