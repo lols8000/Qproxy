@@ -21,7 +21,9 @@ class BrowserExtensionTests(unittest.TestCase):
         self.assertIn("ad-showing", script)
         self.assertIn("ad-interrupting", script)
         self.assertNotIn('".ytp-ad-module"', script)
-        self.assertIn("restoreVideo", script)
+        self.assertIn("function restore()", script)
+        self.assertIn('player.classList.contains("ad-showing")', script)
+        self.assertNotIn("MutationObserver", script)
 
 
 if __name__ == "__main__":
