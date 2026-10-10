@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Qproxy YouTube Companion",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "description": "Complemento do Qproxy para reduzir anúncios e promoções dentro do YouTube sem bloquear os domínios de vídeo.",
   "content_scripts": [
     {
@@ -9,8 +9,12 @@
         "*://youtube.com/*",
         "*://*.youtube.com/*"
       ],
-      "js": ["content.js"],
-      "css": ["content.css"],
+      "js": [
+        "content.js"
+      ],
+      "css": [
+        "content.css"
+      ],
       "run_at": "document_start"
     }
   ],
@@ -19,5 +23,17 @@
       "id": "qproxy-youtube@qproxy.local",
       "strict_min_version": "109.0"
     }
+  },
+  "permissions": [
+    "declarativeNetRequest"
+  ],
+  "declarative_net_request": {
+    "rule_resources": [
+      {
+        "id": "youtube_network_ads",
+        "enabled": true,
+        "path": "network_rules.json"
+      }
+    ]
   }
 }

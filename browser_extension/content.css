@@ -1,24 +1,12 @@
-/* Qproxy YouTube Companion
-   Mantém o stream de vídeo liberado e remove apenas elementos publicitários
-   identificáveis na interface do YouTube. */
-
+/* Qproxy YouTube Companion: hide only explicit advertising surfaces.
+   Generic thumbnail, image and video containers are intentionally untouched. */
 #player-ads,
 ytd-ad-slot-renderer,
 ytd-display-ad-renderer,
 ytd-promoted-video-renderer,
 ytd-promoted-sparkles-web-renderer,
-ytd-promoted-sparkles-text-search-renderer,
 ytd-in-feed-ad-layout-renderer,
 ytd-action-companion-ad-renderer,
-ytm-promoted-sparkles-web-renderer,
-yt-mealbar-promo-renderer,
-ytd-banner-promo-renderer,
-.ytp-ad-overlay-container,
-.ytp-ad-text-overlay {
+.ytp-ad-overlay-container {
   display: none !important;
-  visibility: hidden !important;
-  min-height: 0 !important;
-  max-height: 0 !important;
-  height: 0 !important;
-  overflow: hidden !important;
 }

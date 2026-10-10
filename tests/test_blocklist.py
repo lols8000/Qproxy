@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from qproxy.blocklist import DomainMatcher, RuleManager, normalize_host
+from qproxy.blocklist import DomainMatcher, RuleManager, _domain_from_rule, normalize_host
 
 
 class DomainMatcherTests(unittest.TestCase):
@@ -39,6 +39,53 @@ class DomainMatcherTests(unittest.TestCase):
             self.assertTrue(m.is_blocked("sub.tracker.two.test"))
             self.assertTrue(m.is_blocked("ads.three.test"))
             self.assertFalse(m.is_blocked("safe.three.test"))
+
+    def test_resource_scoped_adblock_rules_do_not_block_entire_image_host(self):
+        scoped = (
+            "||images.example.com^$image",
+            "||images.example.com^$script,third-party",
+            "||images.example.com/banner.jpg^",
+            "||images.example.com/path^$third-party",
+            "@@||images.example.com^$document",
+            "https://images.example.com/banner.jpg",
+            "|https://images.example.com/banner.jpg|",
+        )
+        for rule in scoped:
+            with self.subTest(rule=rule):
+                self.assertEqual(_domain_from_rule(rule)[0], None)
+
+    def test_host_only_rules_still_block_ads(self):
+        m = DomainMatcher()
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "list.txt"
+            path.write_text(
+                "||ads.example.net^\n"
+                "||images.example.net^$image\n"
+                "https://static.example.net/sponsor.jpg\n",
+                encoding="utf-8",
+            )
+            m.load_file(path)
+        self.assertTrue(m.is_blocked("cdn.ads.example.net"))
+        self.assertFalse(m.is_blocked("images.example.net"))
+        self.assertFalse(m.is_blocked("static.example.net"))
+
+    def test_pause_and_resume_blocking(self):
+        with tempfile.TemporaryDirectory() as d:
+            blocked = Path(d) / "blocked.txt"
+            blocked.write_text("ads.example.com\n", encoding="utf-8")
+            rules = RuleManager([(blocked, "ad")], [])
+            self.assertTrue(rules.is_blocked("ads.example.com"))
+
+            rules.pause_for(30)
+            self.assertTrue(rules.snapshot()["blocking_paused"])
+            self.assertFalse(rules.is_blocked("ads.example.com"))
+
+            rules.resume()
+            self.assertFalse(rules.snapshot()["blocking_paused"])
+            self.assertTrue(rules.is_blocked("ads.example.com"))
+
+            with self.assertRaises(ValueError):
+                rules.pause_for(3600)
 
     def test_static_compatibility_allowlist_wins_remote_block(self):
         with tempfile.TemporaryDirectory() as d:

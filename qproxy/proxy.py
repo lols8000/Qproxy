@@ -183,34 +183,43 @@ class ProxyServer:
                     chunk = await src.read(64 * 1024)
                     if not chunk:
                         break
-                    total += len(chunk)
                     dst.write(chunk)
                     await dst.drain()
-            except (ConnectionResetError, BrokenPipeError):
+                    total += len(chunk)
+            except (ConnectionResetError, ConnectionAbortedError, BrokenPipeError):
                 pass
             finally:
-                if not dst.is_closing():
+                # A direção de envio terminou, mas a outra pode ainda
+                # receber a resposta (HTTP POST, streaming, imagens).
+                # Uma desconexão parcial NÃO deve cancelar a outra direção.
+                if not dst.is_closing() and dst.can_write_eof():
                     try:
                         dst.write_eof()
-                    except (AttributeError, OSError):
+                        await dst.drain()
+                    except (OSError, RuntimeError):
                         pass
             return total
 
-        t1 = asyncio.create_task(pump(a_r, b_w))
-        t2 = asyncio.create_task(pump(b_r, a_w))
-        await asyncio.wait({t1, t2}, return_when=asyncio.FIRST_COMPLETED)
-        for task in (t1, t2):
-            if not task.done():
-                task.cancel()
-        results = await asyncio.gather(t1, t2, return_exceptions=True)
-        relayed = sum(v for v in results if isinstance(v, int))
-        if not b_w.is_closing():
-            b_w.close()
-            try:
-                await b_w.wait_closed()
-            except Exception:
-                pass
-        return relayed
+        tasks = (
+            asyncio.create_task(pump(a_r, b_w)),
+            asyncio.create_task(pump(b_r, a_w)),
+        )
+        try:
+            # FIRST_COMPLETED + cancel() cortava downloads assim que
+            # o cliente concluía o envio da requisição.
+            results = await asyncio.gather(*tasks)
+            return sum(results)
+        finally:
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+            if not b_w.is_closing():
+                b_w.close()
+                try:
+                    await b_w.wait_closed()
+                except (OSError, ConnectionResetError, BrokenPipeError):
+                    pass
 
     @staticmethod
     async def _send_error(writer: asyncio.StreamWriter, status: int, message: str) -> None:
