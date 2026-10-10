@@ -59,9 +59,11 @@ O arquivo `network_rules.json` adiciona regras DNR para provedores publicitário
 - esconde slots e cards patrocinados identificáveis;
 - fecha overlays;
 - tenta clicar em **Pular anúncio**;
-- quando o player está realmente em estado de anúncio, muta/acelera e tenta avançar o anúncio;
-- restaura mute, volume e velocidade ao retornar ao vídeo normal.
+- **não** altera velocidade, posição, mute, volume ou reprodução do vídeo;
+- anúncios sem botão nativo para pular podem continuar aparecendo.
 
 ## Limite
 
 O YouTube altera o player e a estrutura do DOM com frequência. O Companion evita bloquear os domínios de vídeo para preservar a reprodução.
+
+**Firefox (atualização de extensão temporária):** abra `about:debugging#/runtime/this-firefox`, clique em **Recarregar** na extensão Qproxy YouTube Companion e recarregue a aba do YouTube. Se ela não aparecer, use **Carregar extensão temporária** e selecione `browser_extension/manifest.json`.
