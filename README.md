@@ -1,4 +1,4 @@
-# Qproxy V3.3
+# Qproxy V3.4
 
 Qproxy combina três camadas:
 
@@ -156,14 +156,22 @@ O YouTube Companion ganhou um conjunto pequeno de regras **declarativeNetRequest
 
 **Para funcionar, o complemento precisa estar instalado/ativo no navegador.** Gerar o arquivo `.xpi` por si só não instala o complemento.
 
+## Correção do player na V3.4
+
+O Companion **não acelera mais propagandas**, **não avança a posição do vídeo** e **não muda o áudio**. Agora ele tenta clicar apenas nos botões nativos de **Pular anúncio** e **Fechar propaganda**, quando o YouTube exibe esses controles. As regras DNR e a ocultação de blocos patrocinados continuam ativas.
+
+Em anúncios não puláveis, o vídeo publicitário pode continuar aparecendo: essa decisão evita travar ou modificar a velocidade do conteúdo principal. Se o Firefox já ficou com velocidade incorreta, recarregue a página e ajuste a velocidade pelo menu do próprio YouTube uma vez; isso não será mais modificado pela extensão.
+
+Para usar o código novo, substitua a pasta local atualizada, recarregue o Qproxy YouTube Companion em `about:debugging#/runtime/this-firefox` e recarregue a aba do YouTube. Apenas executar o novo `main.py` não atualiza uma extensão temporária já carregada no navegador.
+
 ## YouTube
 
 O Companion:
 
 - tenta pular anúncios;
 - fecha overlays;
-- acelera/muta anúncios ativos quando necessário;
-- restaura o estado do vídeo normal;
+- usa apenas o botão nativo de pular e o de fechar overlays;
+- **não altera velocidade, posição, áudio ou estado do player**, evitando efeitos colaterais;
 - esconde slots e cards patrocinados identificáveis.
 
 A allowlist do proxy protege a infraestrutura essencial do YouTube para não quebrar a reprodução.
