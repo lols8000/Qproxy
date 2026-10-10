@@ -3,196 +3,125 @@
 
   const SKIP_SELECTORS = [
     "button.ytp-ad-skip-button-modern",
-    ".ytp-ad-skip-button-modern",
-    ".ytp-ad-skip-button",
+    "button.ytp-ad-skip-button",
     ".ytp-skip-ad-button",
-    "button[class*='ytp-ad-skip']",
-    "button[class*='skip-ad']"
+    "button[class*='ytp-ad-skip']"
   ];
-
   const CLOSE_SELECTORS = [
     ".ytp-ad-overlay-close-button",
-    ".ytp-ad-overlay-close-container button",
-    "button[aria-label*='Fechar']",
-    "button[aria-label*='Close']"
-  ];
-
-  const VISIBLE_AD_MARKERS = [
-    ".ytp-ad-player-overlay",
-    ".ytp-ad-preview-container",
-    ".ytp-ad-text",
-    ".ytp-ad-image-overlay"
+    ".ytp-ad-overlay-close-container button"
   ];
 
   const state = {
-    adActive: false,
     saved: null,
+    adStartedAt: 0,
     lastSkipAt: 0,
-    sweepScheduled: false
+    seekedVideo: null
   };
 
-  function isVisible(element) {
-    if (!(element instanceof HTMLElement)) return false;
-    const style = getComputedStyle(element);
-    if (style.display === "none" || style.visibility === "hidden") return false;
-    const rect = element.getBoundingClientRect();
-    return rect.width > 0 && rect.height > 0;
-  }
-
-  function firstVisible(selectors) {
+  function visibleButton(selectors) {
+    const player = document.querySelector("#movie_player");
+    if (!player) return null;
     for (const selector of selectors) {
-      for (const element of document.querySelectorAll(selector)) {
-        if (!isVisible(element) || element.hasAttribute("disabled")) continue;
-        return element;
+      for (const element of player.querySelectorAll(selector)) {
+        if (!(element instanceof HTMLElement) || element.hasAttribute("disabled")) continue;
+        const style = getComputedStyle(element);
+        const bounds = element.getBoundingClientRect();
+        if (
+          style.display !== "none" &&
+          style.visibility !== "hidden" &&
+          bounds.width > 0 &&
+          bounds.height > 0
+        ) return element;
       }
     }
     return null;
   }
 
-  function clickIfPresent(selectors) {
-    const element = firstVisible(selectors);
-    if (!element) return false;
-    try {
-      element.click();
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
-  function playerIsAdvertising() {
-    const player = document.querySelector("#movie_player");
-    if (
-      player &&
-      (player.classList.contains("ad-showing") ||
-        player.classList.contains("ad-interrupting"))
-    ) {
-      return true;
-    }
-
-    return VISIBLE_AD_MARKERS.some((selector) =>
-      Array.from(document.querySelectorAll(selector)).some(isVisible)
+  function adIsPlaying(player) {
+    // Do not infer "ad playing" from a generic/hidden DOM container.
+    // YouTube leaves ad containers mounted outside advertising periods.
+    return player && (
+      player.classList.contains("ad-showing") ||
+      player.classList.contains("ad-interrupting")
     );
   }
 
-  function rememberVideo(video) {
-    if (state.saved) return;
-    state.saved = {
-      video,
-      muted: video.muted,
-      volume: video.volume,
-      playbackRate: video.playbackRate
-    };
-  }
-
-  function restoreVideo() {
+  function restore() {
     const saved = state.saved;
     state.saved = null;
-    state.adActive = false;
-
-    if (!saved || !saved.video || !saved.video.isConnected) return;
-
+    state.adStartedAt = 0;
+    state.seekedVideo = null;
+    if (!saved || !saved.video.isConnected) return;
     try {
       saved.video.muted = saved.muted;
       saved.video.volume = saved.volume;
       saved.video.playbackRate = saved.playbackRate;
     } catch {
-      // YouTube may replace the video element during navigation.
+      // Player can be replaced during YouTube SPA navigation.
     }
   }
 
-  function shortenAd(video) {
-    rememberVideo(video);
+  function shortenActiveAd(video) {
+    if (state.saved && state.saved.video !== video) restore();
+    if (!state.saved) {
+      state.saved = {
+        video,
+        muted: video.muted,
+        volume: video.volume,
+        playbackRate: video.playbackRate
+      };
+    }
+    try { video.muted = true; } catch {}
+    // 4x is supported much more consistently than 16x on Firefox/Chromium.
+    try { video.playbackRate = 4; } catch {}
 
-    try {
-      video.muted = true;
-      video.playbackRate = 16;
-    } catch {}
-
+    const elapsed = Date.now() - state.adStartedAt;
     const duration = Number(video.duration);
-    const current = Number(video.currentTime);
-
+    const position = Number(video.currentTime);
     if (
+      elapsed > 900 &&
+      state.seekedVideo !== video &&
       Number.isFinite(duration) &&
-      duration > 0.3 &&
-      Number.isFinite(current) &&
-      duration - current > 0.25
+      duration >= 5 &&
+      duration <= 90 &&
+      Number.isFinite(position) &&
+      position < duration - 1
     ) {
       try {
-        video.currentTime = Math.max(current, duration - 0.08);
-      } catch {}
-    }
-
-    if (video.paused) {
-      try {
-        const promise = video.play();
-        if (promise && typeof promise.catch === "function") {
-          promise.catch(() => {});
-        }
+        video.currentTime = duration - 0.25;
+        state.seekedVideo = video;
       } catch {}
     }
   }
 
   function sweep() {
-    const advertising = playerIsAdvertising();
-
-    if (!advertising) {
-      if (state.adActive) restoreVideo();
+    const player = document.querySelector("#movie_player");
+    if (!adIsPlaying(player)) {
+      if (state.saved || state.adStartedAt) restore();
       return;
     }
 
-    state.adActive = true;
-
+    if (!state.adStartedAt) state.adStartedAt = Date.now();
     const now = Date.now();
-    let skipped = false;
-    if (now - state.lastSkipAt > 250) {
-      skipped = clickIfPresent(SKIP_SELECTORS);
-      if (skipped) state.lastSkipAt = now;
-    }
-
-    clickIfPresent(CLOSE_SELECTORS);
-
-    // Give a real skip button one cycle to finish the transition before
-    // touching the video element itself.
-    if (skipped) return;
-
-    const video =
-      document.querySelector("video.html5-main-video") ||
-      document.querySelector("#movie_player video") ||
-      document.querySelector("video");
-
-    if (video instanceof HTMLVideoElement) {
-      shortenAd(video);
-    }
-  }
-
-  function scheduleSweep() {
-    if (state.sweepScheduled) return;
-    state.sweepScheduled = true;
-    requestAnimationFrame(() => {
-      state.sweepScheduled = false;
-      sweep();
-    });
-  }
-
-  function start() {
-    const root = document.documentElement;
-    if (!root) {
-      setTimeout(start, 25);
+    const skip = visibleButton(SKIP_SELECTORS);
+    if (skip && now - state.lastSkipAt > 350) {
+      state.lastSkipAt = now;
+      try { skip.click(); } catch {}
       return;
     }
+    const close = visibleButton(CLOSE_SELECTORS);
+    if (close) {
+      try { close.click(); } catch {}
+    }
 
-    const observer = new MutationObserver(scheduleSweep);
-    observer.observe(root, {
-      childList: true,
-      subtree: true,
-      attributes: true,
-      attributeFilter: ["class", "style", "aria-label"]
-    });
-
-    setInterval(sweep, 300);
-    sweep();
+    // Never touch media outside the confirmed YouTube player.
+    const video = player.querySelector("video.html5-main-video");
+    if (video instanceof HTMLVideoElement) shortenActiveAd(video);
   }
 
-  start();
+  // A single bounded interval avoids observing every DOM/style mutation of
+  // YouTube, which previously could cause excessive work and visual stutter.
+  setInterval(sweep, 450);
+  sweep();
 })();
