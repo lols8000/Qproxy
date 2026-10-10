@@ -59,9 +59,9 @@ class DomainMatcherTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             path = Path(d) / "list.txt"
             path.write_text(
-                "||ads.example.net^\\n"
-                "||images.example.net^$image\\n"
-                "https://static.example.net/sponsor.jpg\\n",
+                "||ads.example.net^\n"
+                "||images.example.net^$image\n"
+                "https://static.example.net/sponsor.jpg\n",
                 encoding="utf-8",
             )
             m.load_file(path)
