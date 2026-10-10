@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 from threading import RLock
+from time import monotonic
 
 
 def normalize_host(host: str) -> str:
@@ -156,6 +157,7 @@ class RuleManager:
             if (domain := normalize_host(raw)) and _hostname_like(domain)
         )
         self._lock = RLock()
+        self._paused_until = 0.0
         self._matcher = DomainMatcher()
         self.last_load_counts = {"blocked_rules": 0, "allow_rules": 0}
         self.reload()
@@ -189,7 +191,20 @@ class RuleManager:
     def evaluate(self, host: str) -> MatchResult:
         with self._lock:
             matcher = self._matcher
+            paused = monotonic() < self._paused_until
+        if paused:
+            return MatchResult(False, normalize_host(host), rule="paused", whitelisted=True)
         return matcher.evaluate(host)
+
+    def pause_for(self, seconds: int = 600) -> None:
+        if not 1 <= seconds <= 600:
+            raise ValueError("Pausa deve ter entre 1 e 600 segundos")
+        with self._lock:
+            self._paused_until = monotonic() + seconds
+
+    def resume(self) -> None:
+        with self._lock:
+            self._paused_until = 0.0
 
     def is_blocked(self, host: str) -> bool:
         return self.evaluate(host).blocked
@@ -234,6 +249,9 @@ class RuleManager:
             matcher = self._matcher
             counts = dict(self.last_load_counts)
             allowed = sorted(matcher.allowed)
+            remaining = max(0, int(self._paused_until - monotonic()))
         counts["whitelist"] = allowed
+        counts["blocking_paused"] = remaining > 0
+        counts["pause_remaining_seconds"] = remaining
         counts["compatibility_allowlist"] = list(self.static_allowlist)
         return counts
