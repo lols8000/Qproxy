@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Qproxy YouTube Companion",
-  "version": "0.1.2",
-  "description": "Complemento do Qproxy para reduzir anúncios e promoções dentro do YouTube sem bloquear os domínios de vídeo.",
+  "version": "0.1.3",
+  "description": "Complemento de YouTube com bloqueio conservador e uso do botão nativo de pular, sem alterar reprodução, áudio ou velocidade.",
   "content_scripts": [
     {
       "matches": [
