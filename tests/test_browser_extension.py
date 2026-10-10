@@ -40,9 +40,17 @@ class BrowserExtensionTests(unittest.TestCase):
         self.assertIn("ad-showing", script)
         self.assertIn("ad-interrupting", script)
         self.assertNotIn('".ytp-ad-module"', script)
-        self.assertIn("function restore()", script)
+        self.assertIn("function activeAdPlayer()", script)
+        self.assertIn("function clickControl(", script)
+        self.assertIn("control.click()", script)
         self.assertIn('player.classList.contains("ad-showing")', script)
         self.assertNotIn("MutationObserver", script)
+        # O complemento jamais pode alterar velocidade/posição/áudio do vídeo.
+        for forbidden in ("playbackRate", "currentTime", ".muted", ".volume", "video.play(", "video.pause("):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, script)
+        css = (EXT / "content.css").read_text(encoding="utf-8")
+        self.assertNotIn(".ytp-ad-overlay-container", css)
 
 
 if __name__ == "__main__":
