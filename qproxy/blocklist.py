@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 from threading import RLock
-from urllib.parse import urlsplit
 
 
 def normalize_host(host: str) -> str:
@@ -42,24 +41,29 @@ def _domain_from_rule(line: str) -> tuple[str | None, bool]:
         line = line[2:].strip()
 
     if line.startswith("||"):
-        domain = line[2:].split("^", 1)[0].split("/", 1)[0]
-        domain = normalize_host(domain)
-        return (domain if _hostname_like(domain) else None), is_allow
+        # Regras EasyList que usam caminhos, modificadores ($image, $script,
+        # $third-party, $domain etc.) ou padrões não podem virar bloqueio
+        # do domínio inteiro: isso quebra imagens, vídeos e aplicações.
+        candidate = line[2:]
+        if candidate.endswith("^"):
+            candidate = candidate[:-1]
+        candidate = candidate.lower().rstrip(".")
+        return (candidate if _hostname_like(candidate) else None), is_allow
 
     parts = line.split()
     if len(parts) >= 2 and parts[0] in {"0.0.0.0", "127.0.0.1", "::1"}:
         domain = normalize_host(parts[1])
         return (domain if _hostname_like(domain) else None), is_allow
 
+    # URLs completas são sempre dependentes de caminho/esquema:
+    # converter https://site/imagem em bloqueio de site inteiro é inseguro.
     if "://" in line:
-        parsed = urlsplit(line)
-        domain = normalize_host(parsed.hostname or "")
-        return (domain if _hostname_like(domain) else None), is_allow
-
-    if any(ch in line for ch in "/$*?=#@,"):
         return None, is_allow
 
-    domain = normalize_host(line)
+    if any(ch in line for ch in "/$*?=#@,:|^"):
+        return None, is_allow
+
+    domain = line.lower().rstrip(".")
     return (domain if _hostname_like(domain) else None), is_allow
 
 
