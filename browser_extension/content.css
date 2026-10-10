@@ -1,12 +1,11 @@
 /* Qproxy YouTube Companion: hide only explicit advertising surfaces.
-   Generic thumbnail, image and video containers are intentionally untouched. */
+   Generic thumbnails, videos and overlay close buttons are intentionally untouched. */
 #player-ads,
 ytd-ad-slot-renderer,
 ytd-display-ad-renderer,
 ytd-promoted-video-renderer,
 ytd-promoted-sparkles-web-renderer,
 ytd-in-feed-ad-layout-renderer,
-ytd-action-companion-ad-renderer,
-.ytp-ad-overlay-container {
+ytd-action-companion-ad-renderer {
   display: none !important;
 }
