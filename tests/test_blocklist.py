@@ -69,6 +69,24 @@ class DomainMatcherTests(unittest.TestCase):
         self.assertFalse(m.is_blocked("images.example.net"))
         self.assertFalse(m.is_blocked("static.example.net"))
 
+    def test_pause_and_resume_blocking(self):
+        with tempfile.TemporaryDirectory() as d:
+            blocked = Path(d) / "blocked.txt"
+            blocked.write_text("ads.example.com\n", encoding="utf-8")
+            rules = RuleManager([(blocked, "ad")], [])
+            self.assertTrue(rules.is_blocked("ads.example.com"))
+
+            rules.pause_for(30)
+            self.assertTrue(rules.snapshot()["blocking_paused"])
+            self.assertFalse(rules.is_blocked("ads.example.com"))
+
+            rules.resume()
+            self.assertFalse(rules.snapshot()["blocking_paused"])
+            self.assertTrue(rules.is_blocked("ads.example.com"))
+
+            with self.assertRaises(ValueError):
+                rules.pause_for(3600)
+
     def test_static_compatibility_allowlist_wins_remote_block(self):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
