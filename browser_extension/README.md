@@ -50,6 +50,10 @@ brave://extensions
 
 Nos navegadores Chromium, para teste local, use **Modo do desenvolvedor → Carregar sem compactação** e selecione a pasta `browser_extension`.
 
+## Regras de rede
+
+O arquivo `network_rules.json` adiciona regras DNR para provedores publicitários de terceiros **somente quando o iniciador da requisição for YouTube**. Tipos de recurso `image`, `media` e `main_frame` não são bloqueados por essas regras.
+
 ## O que faz
 
 - esconde slots e cards patrocinados identificáveis;
