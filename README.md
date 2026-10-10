@@ -1,4 +1,4 @@
-# Qproxy V3.2
+# Qproxy V3.3
 
 Qproxy combina três camadas:
 
@@ -139,6 +139,16 @@ data/browser/qproxy-youtube-companion.xpi
 ```
 
 O ZIP é o pacote-base para Chrome/Edge/Brave. O XPI local é útil para teste/assinatura, mas não substitui uma assinatura válida do Firefox.
+
+## Correções de estabilidade na V3.3
+
+- O relay HTTP/HTTPS não cancela mais uma resposta quando uma das direções da conexão termina. Isso evita imagens/downloads truncados após o cliente finalizar o envio.
+- Regras EasyList com caminhos (`/imagem.jpg`) ou restrições (`$image`, `$script`, `$third-party`) **não** são transformadas em bloqueio de domínio inteiro. Essas regras são ignoradas pelo proxy, que só entende hosts.
+- Painel em `http://127.0.0.1:8900` com **Pausar bloqueio (10 min)** para comparar uma página com/sem filtragem. O bloqueio retorna sozinho; também existe o botão de retomada.
+- A extensão passou a agir somente quando o player do YouTube indica anúncio de verdade, e deixou de monitorar cada alteração visual da página.
+- Quando um site perder imagens, confira em **Atividade recente** quais hosts foram bloqueados e use **liberar**. Não libere domínios desconhecidos indiscriminadamente.
+
+**Importante:** detectar Firefox/Chrome/Edge/Brave e gerar o ZIP/XPI **não** instala a extensão. No Firefox, confirme em `about:addons` se o Qproxy YouTube Companion está ativo. Sem o complemento efetivamente instalado, anúncios embutidos nos vídeos continuarão passando. A instalação permanente depende de assinatura/loja; para teste local use `about:debugging#/runtime/this-firefox` e selecione `browser_extension/manifest.json`.
 
 ## YouTube
 
