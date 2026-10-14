@@ -168,9 +168,9 @@ Para usar o código novo, substitua a pasta local atualizada, recarregue o Qprox
 
 Execute o Qproxy normalmente e abra o painel local:
 
-\`\`\`text
+```text
 http://127.0.0.1:8900
-\`\`\`
+```
 
 O painel permite:
 
@@ -181,11 +181,11 @@ O painel permite:
 - Conferir a última tentativa de atualização de cada fonte e forçar uma atualização com um botão.
 - Pausar o bloqueio do **proxy** por até 10 minutos para diagnosticar falsos positivos (isso não pausa uma extensão do navegador).
 
-Os bloqueios manuais são salvos em \`data/manual_blocklist.txt\`; o arquivo de liberações continua em \`data/whitelist.txt\`. Ambos sobrevivem a reinicializações e atualizações de listas. Se uma regra manual for removida mas também fizer parte de uma lista externa, o domínio continuará bloqueado até ser colocado na whitelist.
+Os bloqueios manuais são salvos em `data/manual_blocklist.txt`; o arquivo de liberações continua em `data/whitelist.txt`. Ambos sobrevivem a reinicializações e atualizações de listas. Se uma regra manual for removida mas também fizer parte de uma lista externa, o domínio continuará bloqueado até ser colocado na whitelist.
 
 ### Fontes confiáveis e atualizações
 
-A V3.5 inclui o arquivo de hosts consolidado de [StevenBlack/hosts](https://github.com/StevenBlack/hosts), além das fontes já usadas EasyList e EasyPrivacy. O StevenBlack reúne listas mantidas pela comunidade e possui formato \`hosts\`, apropriado ao filtro por domínio do Qproxy.
+A V3.5 inclui o arquivo de hosts consolidado de [StevenBlack/hosts](https://github.com/StevenBlack/hosts), além das fontes já usadas EasyList e EasyPrivacy. O StevenBlack reúne listas mantidas pela comunidade e possui formato `hosts`, apropriado ao filtro por domínio do Qproxy.
 
 **O Qproxy verifica as fontes automaticamente ao iniciar e a cada 6 horas enquanto estiver em execução.** Não há atualização em segundo plano quando o Qproxy está fechado. A atualização valida formato, tamanho e contagem de regras; se a fonte apresentar erro ou redução anormal, mantém a versão em cache. A interface informa falhas.
 
