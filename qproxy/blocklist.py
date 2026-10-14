@@ -42,9 +42,8 @@ def _domain_from_rule(line: str) -> tuple[str | None, bool]:
         line = line[2:].strip()
 
     if line.startswith("||"):
-        # Regras EasyList que usam caminhos, modificadores ($image, $script,
-        # $third-party, $domain etc.) ou padrões não podem virar bloqueio
-        # do domínio inteiro: isso quebra imagens, vídeos e aplicações.
+        # Somente regras globais por domínio: não amplie filtros de URL,
+        # recursos ou condições para o domínio inteiro.
         candidate = line[2:]
         if candidate.endswith("^"):
             candidate = candidate[:-1]
@@ -56,16 +55,16 @@ def _domain_from_rule(line: str) -> tuple[str | None, bool]:
         domain = normalize_host(parts[1])
         return (domain if _hostname_like(domain) else None), is_allow
 
-    # URLs completas são sempre dependentes de caminho/esquema:
-    # converter https://site/imagem em bloqueio de site inteiro é inseguro.
-    if "://" in line:
-        return None, is_allow
-
-    if any(ch in line for ch in "/$*?=#@,:|^"):
+    if "://" in line or any(ch in line for ch in "/$*?=#@,:|^"):
         return None, is_allow
 
     domain = line.lower().rstrip(".")
     return (domain if _hostname_like(domain) else None), is_allow
+
+
+def count_domain_rules(payload: str) -> int:
+    """Contagem de regras reconhecíveis; usada para rejeitar listas inválidas."""
+    return sum(1 for line in payload.splitlines() if _domain_from_rule(line)[0])
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,13 +81,15 @@ class DomainMatcher:
         self.blocked: set[str] = set()
         self.allowed: set[str] = set()
         self.categories: dict[str, str] = {}
+        self.origins: dict[str, str] = {}
 
-    def add_block(self, domain: str, category: str = "ad") -> None:
+    def add_block(self, domain: str, category: str = "ad", origin: str = "local") -> None:
         domain = normalize_host(domain)
         if domain and _hostname_like(domain):
             self.blocked.add(domain)
             if category == "tracker" or domain not in self.categories:
                 self.categories[domain] = category
+            self.origins.setdefault(domain, origin)
 
     def add_allow(self, domain: str) -> None:
         domain = normalize_host(domain)
@@ -98,7 +99,10 @@ class DomainMatcher:
     def remove_allow(self, domain: str) -> None:
         self.allowed.discard(normalize_host(domain))
 
-    def load_file(self, path: str | Path, default_allow: bool = False, category: str = "ad") -> int:
+    def load_file(
+        self, path: str | Path, default_allow: bool = False,
+        category: str = "ad", origin: str | None = None,
+    ) -> int:
         p = Path(path)
         if not p.exists():
             return 0
@@ -107,11 +111,10 @@ class DomainMatcher:
             domain, rule_allow = _domain_from_rule(raw)
             if not domain:
                 continue
-            allow = default_allow or rule_allow
-            if allow:
+            if default_allow or rule_allow:
                 self.add_allow(domain)
             else:
-                self.add_block(domain, category=category)
+                self.add_block(domain, category=category, origin=origin or p.name)
             count += 1
         return count
 
@@ -141,16 +144,18 @@ class DomainMatcher:
 
 
 class RuleManager:
-    """Atomically reloadable domain rules shared by proxy and dashboard."""
+    """Regras atualizadas atomicamente, com bloqueios manuais persistentes."""
 
     def __init__(
         self,
         block_sources: list[tuple[Path, str]],
         whitelist_paths: list[Path],
         static_allowlist: list[str] | None = None,
+        manual_blocklist_path: Path | None = None,
     ) -> None:
         self.block_sources = block_sources
         self.whitelist_paths = whitelist_paths
+        self.manual_blocklist_path = Path(manual_blocklist_path) if manual_blocklist_path else None
         self.static_allowlist = tuple(
             domain
             for raw in (static_allowlist or [])
@@ -159,41 +164,89 @@ class RuleManager:
         self._lock = RLock()
         self._paused_until = 0.0
         self._matcher = DomainMatcher()
+        self._manual_blocks: set[str] = set()
+        self._user_whitelist: set[str] = set()
+        self._ordered_blocks: tuple[str, ...] = ()
         self.last_load_counts = {"blocked_rules": 0, "allow_rules": 0}
         self.reload()
 
+    @staticmethod
+    def _read_domains(path: Path | None) -> set[str]:
+        if path is None or not path.is_file():
+            return set()
+        domains: set[str] = set()
+        for raw in path.read_text(encoding="utf-8", errors="ignore").splitlines():
+            domain, _ = _domain_from_rule(raw)
+            if domain:
+                domains.add(domain)
+        return domains
+
+    @staticmethod
+    def _save_domains(path: Path, domains: set[str]) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temp = path.with_name(path.name + ".tmp")
+        temp.write_text("".join(f"{domain}\n" for domain in sorted(domains)), encoding="utf-8")
+        temp.replace(path)
+
     def reload(self) -> dict[str, int]:
-        matcher = DomainMatcher()
-        blocked = 0
-        allowed = 0
-
-        for path, category in self.block_sources:
-            blocked += matcher.load_file(path, category=category)
-
-        for domain in self.static_allowlist:
-            matcher.add_allow(domain)
-            allowed += 1
-
-        for path in self.whitelist_paths:
-            allowed += matcher.load_file(path, default_allow=True)
-
         with self._lock:
+            matcher = DomainMatcher()
+            blocked = 0
+            allowed = 0
+
+            for path, category in self.block_sources:
+                blocked += matcher.load_file(path, category=category)
+
+            for domain in self.static_allowlist:
+                matcher.add_allow(domain)
+                allowed += 1
+
+            for path in self.whitelist_paths:
+                allowed += matcher.load_file(path, default_allow=True)
+
+            user_whitelist = self._read_domains(self.whitelist_paths[0]) if self.whitelist_paths else set()
+            manual_blocks = self._read_domains(self.manual_blocklist_path)
+            for domain in manual_blocks:
+                matcher.add_block(domain, category="manual", origin="Você")
+
             self._matcher = matcher
+            self._manual_blocks = manual_blocks
+            self._user_whitelist = user_whitelist
+            self._ordered_blocks = tuple(sorted(matcher.blocked))
             self.last_load_counts = {
-                "blocked_rules": blocked,
+                "blocked_rules": blocked + len(manual_blocks),
                 "allow_rules": allowed,
                 "blocked_domains": len(matcher.blocked),
                 "allowed_domains": len(matcher.allowed),
+                "manual_domains": len(manual_blocks),
                 "compatibility_domains": len(self.static_allowlist),
             }
             return dict(self.last_load_counts)
 
+    def _protected(self, host: str) -> bool:
+        return any(
+            host == safe or host.endswith("." + safe)
+            for safe in self.static_allowlist
+        )
+
     def evaluate(self, host: str) -> MatchResult:
+        host = normalize_host(host)
         with self._lock:
             matcher = self._matcher
             paused = monotonic() < self._paused_until
+            manual = self._manual_blocks
+            whitelist = self._user_whitelist
         if paused:
-            return MatchResult(False, normalize_host(host), rule="paused", whitelisted=True)
+            return MatchResult(False, host, rule="paused", whitelisted=True)
+
+        suffixes = tuple(DomainMatcher._suffixes(host))
+        for suffix in suffixes:
+            if suffix in whitelist or suffix in self.static_allowlist:
+                return MatchResult(False, host, rule=suffix, whitelisted=True)
+        # Bloqueio escolhido pelo usuário vence exceção de listas remotas.
+        for suffix in suffixes:
+            if suffix in manual:
+                return MatchResult(True, host, rule=suffix, category="manual")
         return matcher.evaluate(host)
 
     def pause_for(self, seconds: int = 600) -> None:
@@ -209,48 +262,95 @@ class RuleManager:
     def is_blocked(self, host: str) -> bool:
         return self.evaluate(host).blocked
 
+    def add_to_blocklist(self, domain: str) -> str:
+        domain = normalize_host(domain)
+        if not _hostname_like(domain):
+            raise ValueError("Informe apenas o domínio, sem URL ou caminho (ex.: ads.exemplo.com)")
+        if self.manual_blocklist_path is None:
+            raise RuntimeError("Arquivo de bloqueios manuais não configurado")
+        with self._lock:
+            if self._protected(domain):
+                raise ValueError("Domínio protegido para não interromper vídeos ou navegação")
+            if any(domain == d or domain.endswith("." + d) for d in self._user_whitelist):
+                raise ValueError("Domínio liberado manualmente; retire-o da whitelist primeiro")
+            domains = set(self._manual_blocks)
+            domains.add(domain)
+            self._save_domains(self.manual_blocklist_path, domains)
+            self.reload()
+        return domain
+
+    def remove_from_blocklist(self, domain: str) -> str:
+        domain = normalize_host(domain)
+        with self._lock:
+            if self.manual_blocklist_path is None:
+                raise RuntimeError("Arquivo de bloqueios manuais não configurado")
+            domains = set(self._manual_blocks)
+            domains.discard(domain)
+            self._save_domains(self.manual_blocklist_path, domains)
+            self.reload()
+        return domain
+
     def add_to_whitelist(self, domain: str) -> str:
         domain = normalize_host(domain)
         if not _hostname_like(domain):
             raise ValueError("Domínio inválido")
         if not self.whitelist_paths:
             raise RuntimeError("Nenhum arquivo de whitelist configurado")
-        path = self.whitelist_paths[0]
-        path.parent.mkdir(parents=True, exist_ok=True)
-        existing = set()
-        if path.exists():
-            existing = {
-                normalize_host(line)
-                for line in path.read_text(encoding="utf-8", errors="ignore").splitlines()
-                if line.strip() and not line.startswith("#")
-            }
-        if domain not in existing:
-            with path.open("a", encoding="utf-8") as file:
-                if path.stat().st_size:
-                    file.write("\n")
-                file.write(domain)
-        self.reload()
+        with self._lock:
+            path = self.whitelist_paths[0]
+            domains = self._read_domains(path)
+            domains.add(domain)
+            self._save_domains(path, domains)
+            self.reload()
         return domain
 
     def remove_from_whitelist(self, domain: str) -> str:
         domain = normalize_host(domain)
         if not self.whitelist_paths:
             raise RuntimeError("Nenhum arquivo de whitelist configurado")
-        path = self.whitelist_paths[0]
-        if path.exists():
-            lines = path.read_text(encoding="utf-8", errors="ignore").splitlines()
-            kept = [line for line in lines if normalize_host(line) != domain]
-            path.write_text("\n".join(kept).rstrip() + ("\n" if kept else ""), encoding="utf-8")
-        self.reload()
+        with self._lock:
+            path = self.whitelist_paths[0]
+            domains = self._read_domains(path)
+            domains.discard(domain)
+            self._save_domains(path, domains)
+            self.reload()
         return domain
+
+    def list_rules(self, query: str = "", scope: str = "all", page: int = 1, limit: int = 40) -> dict:
+        query = query.strip().lower()
+        if len(query) > 253 or any(ch in query for ch in "\r\n"):
+            raise ValueError("Busca inválida")
+        if scope not in {"all", "manual"} or page < 1 or page > 100000 or not 1 <= limit <= 100:
+            raise ValueError("Parâmetros de listagem inválidos")
+        with self._lock:
+            matcher = self._matcher
+            domains = sorted(self._manual_blocks) if scope == "manual" else self._ordered_blocks
+            filtered = (domain for domain in domains if query in domain)
+            start = (page - 1) * limit
+            # Limitar a resposta ao tamanho da página, sem mandar a lista completa.
+            total = 0
+            items = []
+            for domain in filtered:
+                if start <= total < start + limit:
+                    items.append({
+                        "domain": domain,
+                        "category": "manual" if domain in self._manual_blocks else matcher.categories.get(domain, "ad"),
+                        "source": "Você" if domain in self._manual_blocks else matcher.origins.get(domain, "local"),
+                        "manual": domain in self._manual_blocks,
+                        "whitelisted": domain in matcher.allowed,
+                    })
+                total += 1
+            return {"total": total, "page": page, "limit": limit, "items": items}
 
     def snapshot(self) -> dict:
         with self._lock:
             matcher = self._matcher
             counts = dict(self.last_load_counts)
-            allowed = sorted(matcher.allowed)
             remaining = max(0, int(self._paused_until - monotonic()))
-        counts["whitelist"] = allowed
+            whitelist = sorted(self._user_whitelist)
+            manual = sorted(self._manual_blocks)
+        counts["whitelist"] = whitelist
+        counts["manual_blocklist"] = manual
         counts["blocking_paused"] = remaining > 0
         counts["pause_remaining_seconds"] = remaining
         counts["compatibility_allowlist"] = list(self.static_allowlist)
