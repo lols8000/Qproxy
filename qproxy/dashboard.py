@@ -102,7 +102,7 @@ async function refreshRules(){
 async function perform(action,domain){
  try{
  if(action==='block'){await post('/api/blocklist',{domain});setMessage(domain+' bloqueado por você')}
- else if(action==='unblock'){await post('/api/blocklist/remove',{domain});setMessage('Bloqueio manual removido: '+domain)}
+ else if(action==='unblock'){await post('/api/blocklist/remove',{domain});setMessage('Bloqueio manual removido: '+domain+'. Se uma lista externa também bloquear esse host, use Liberar.')}
  else if(action==='allow'){await post('/api/whitelist',{domain});setMessage('Domínio liberado: '+domain)}
  else if(action==='unallow'){await post('/api/whitelist/remove',{domain});setMessage('Liberação removida: '+domain)}
  else if(action==='pause'){await post(paused?'/api/resume':'/api/pause');setMessage(paused?'Bloqueio retomado':'Bloqueio pausado por 10 minutos')}
