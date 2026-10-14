@@ -5,7 +5,7 @@ import json
 import logging
 import secrets
 from threading import Thread
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 from .blocklist import RuleManager
 from .stats import StatsStore
@@ -15,25 +15,113 @@ LOG = logging.getLogger("qproxy")
 
 DASHBOARD_HTML = r'''<!doctype html>
 <html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Qproxy V3.3</title><style>
-:root{color-scheme:dark;--bg:#07101d;--panel:#101b2d;--line:#23344f;--text:#e9f1ff;--muted:#93a6c6;--green:#39d98a;--red:#ff6577;--blue:#5b91ff}*{box-sizing:border-box}body{margin:0;font:14px/1.45 Inter,Segoe UI,system-ui;background:linear-gradient(135deg,#07101d,#0d1728);color:var(--text)}main{max-width:1280px;margin:auto;padding:28px}.top{display:flex;justify-content:space-between;gap:16px;align-items:center}.brand h1{margin:0;font-size:28px}.brand p{margin:4px 0;color:var(--muted)}button,input{font:inherit}.btn{background:#16243b;color:var(--text);border:1px solid var(--line);border-radius:9px;padding:9px 12px;cursor:pointer}.btn.primary{background:var(--blue);border-color:var(--blue)}.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:22px 0}.card{background:rgba(16,27,45,.94);border:1px solid var(--line);border-radius:14px;padding:16px}.metric{font-size:30px;font-weight:800}.label,.muted,.status{color:var(--muted)}.row{display:flex;gap:9px;align-items:center}.between{justify-content:space-between}.two{display:grid;grid-template-columns:1fr 1fr;gap:14px}.table{width:100%;border-collapse:collapse}.table th,.table td{padding:9px;border-bottom:1px solid var(--line);text-align:left}.blocked{color:var(--red)}.allowed{color:var(--green)}.tag{font-size:11px;padding:3px 7px;border-radius:999px;background:#172844}.whitelist{display:flex;gap:8px;margin:10px 0 14px}.whitelist input{flex:1;background:#0c1626;color:var(--text);border:1px solid var(--line);border-radius:9px;padding:9px}@media(max-width:850px){.grid,.two{grid-template-columns:1fr 1fr}}@media(max-width:560px){.grid,.two{grid-template-columns:1fr}.top{align-items:flex-start;flex-direction:column}}
-</style></head><body><main><div class="top"><div class="brand"><h1>Qproxy V3.3</h1><p>Proxy local • anúncios e trackers por domínio • sem MITM</p></div><div class="row"><button class="btn" id="pauseButton" onclick="togglePause()">Pausar proxy (10 min)</button><button class="btn primary" onclick="updateLists()">Atualizar listas agora</button></div></div>
-<div class="grid"><div class="card"><div class="label">Bloqueios</div><div class="metric" id="blocked">0</div></div><div class="card"><div class="label">Anúncios</div><div class="metric" id="ads">0</div></div><div class="card"><div class="label">Trackers</div><div class="metric" id="trackers">0</div></div><div class="card"><div class="label">Tráfego retransmitido</div><div class="metric" id="bytes">0 B</div></div></div>
-<div class="two"><section class="card"><div class="between row"><h3>Mais bloqueados</h3><span class="tag" id="rules">0 regras</span></div><table class="table"><thead><tr><th>Domínio</th><th>Bloqueios</th></tr></thead><tbody id="top"></tbody></table></section><section class="card"><h3>Whitelist</h3><div class="whitelist"><input id="domain" placeholder="exemplo.com"><button class="btn" onclick="addWhitelist()">Liberar</button></div><div id="whitelist" class="muted"></div><div id="updateStatus" class="status"></div></section></div>
-<p class="muted">Imagem ou site com problema? Pause o proxy por 10 minutos para comparar. A extensão do navegador continua ativa. Se o problema desaparecer, veja o domínio na atividade recente e use <b>liberar</b>. Para anúncios dentro do YouTube, a extensão do navegador precisa estar instalada e ativa.</p>
-<section class="card" style="margin-top:14px"><h3>Atividade recente</h3><table class="table"><thead><tr><th>Ação</th><th>Host</th><th>Protocolo</th><th>Tipo</th><th></th></tr></thead><tbody id="recent"></tbody></table></section>
+<title>Qproxy V3.5 · Controle de anúncios</title>
+<style>
+:root{color-scheme:dark;--bg:#07101d;--panel:#101b2d;--line:#293951;--text:#e9f1ff;--muted:#aabbd6;--green:#39d98a;--red:#ff6577;--blue:#5b91ff}
+*{box-sizing:border-box}body{margin:0;font:14px/1.5 Segoe UI,system-ui,sans-serif;background:linear-gradient(135deg,#07101d,#0d1728);color:var(--text)}
+main{max-width:1240px;margin:auto;padding:24px}.top{display:flex;gap:14px;justify-content:space-between;align-items:center;flex-wrap:wrap}
+h1{font-size:27px;margin:0}h2{font-size:18px;margin:0 0 12px}p{margin:7px 0;color:var(--muted)}button,input,select{font:inherit}
+button{cursor:pointer}.btn{padding:9px 12px;border-radius:8px;background:#182740;color:var(--text);border:1px solid var(--line)}
+.btn.primary{background:#315ad5;border-color:#315ad5}.btn.danger{color:#ffb2bf}.btn:disabled{opacity:.5;cursor:not-allowed}
+input,select{background:#0c1728;border:1px solid #364962;border-radius:8px;padding:9px;color:var(--text);min-width:0}
+input{flex:1}.row{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:20px 0}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:14px}.panel{background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:17px;margin-bottom:15px}
+.metric{font-size:28px;font-weight:750}.label,.muted{color:var(--muted)}.table-wrap{overflow:auto}
+table{border-collapse:collapse;width:100%;font-size:13px}td,th{text-align:left;border-bottom:1px solid #27344b;padding:9px 6px}
+td:first-child{word-break:break-word}.ok{color:var(--green)}.bad{color:var(--red)}
+#message{min-height:23px;font-weight:600}.secondary{font-size:12px} .pill{border-radius:40px;padding:3px 8px;background:#203151}
+@media(max-width:850px){.grid,.two{grid-template-columns:1fr 1fr}}
+@media(max-width:620px){.grid,.two{grid-template-columns:1fr}.top{align-items:flex-start}.row input{min-width:100%}}
+</style></head>
+<body><main>
+<div class="top"><div><h1>Qproxy · Central de bloqueios</h1><p>Bloqueio por domínio, regras manuais e listas online atualizadas</p></div>
+<div class="row"><button class="btn" id="pause" data-action="pause">Pausar bloqueio (10 min)</button><button class="btn primary" id="update" data-action="update">Atualizar listas agora</button></div></div>
+<div class="grid">
+<div class="panel"><div class="label">Requisições bloqueadas</div><div class="metric" id="blocked">0</div></div>
+<div class="panel"><div class="label">Domínios nas listas</div><div class="metric" id="count">0</div></div>
+<div class="panel"><div class="label">Bloqueados por você</div><div class="metric" id="manualCount">0</div></div>
+<div class="panel"><div class="label">Tráfego retransmitido</div><div class="metric" id="bytes">0 B</div></div>
+</div>
+<div id="message" role="status" aria-live="polite"></div>
+<div class="two">
+<section class="panel"><h2>Bloquear um domínio</h2><p>Use somente o host, por exemplo <code>ads.exemplo.com</code>. O bloqueio vale para todos os sites que usam esse host.</p>
+<form class="row" id="blockForm"><input id="blockDomain" placeholder="ads.exemplo.com" required autocomplete="off"><button class="btn primary" type="submit">Bloquear</button></form></section>
+<section class="panel"><h2>Liberar um domínio</h2><p>Se imagens ou páginas deixarem de carregar, adicione o domínio aqui. A whitelist prevalece sobre as listas externas.</p>
+<form class="row" id="allowForm"><input id="allowDomain" placeholder="imagens.exemplo.com" required autocomplete="off"><button class="btn" type="submit">Liberar</button></form></section>
+</div>
+<section class="panel"><h2>Consultar lista de bloqueios</h2><div class="row"><input id="search" placeholder="Buscar domínio na lista" autocomplete="off">
+<select id="scope" aria-label="Tipo de lista"><option value="all">Todas as listas</option><option value="manual">Bloqueados por mim</option></select><button class="btn" data-action="search">Buscar</button></div>
+<p id="resultSummary"></p><div class="table-wrap"><table><thead><tr><th>Domínio</th><th>Origem</th><th>Tipo</th><th>Ação</th></tr></thead><tbody id="rulesTable"></tbody></table></div>
+<div class="row" style="justify-content:flex-end;margin-top:12px"><button class="btn" data-action="prev">Anterior</button><span id="pageLabel"></span><button class="btn" data-action="next">Próxima</button></div></section>
+<div class="two">
+<section class="panel"><h2>Atividade recente</h2><p>Uma conexão permitida não significa necessariamente propaganda. Confira o host antes de bloquear.</p>
+<div class="table-wrap"><table><thead><tr><th>Estado</th><th>Domínio</th><th>Ação</th></tr></thead><tbody id="recent"></tbody></table></div></section>
+<section class="panel"><h2>Fontes e atualizações</h2><p>As listas são verificadas automaticamente a cada 6 horas enquanto o programa está aberto. Se uma atualização falhar, o cache anterior é preservado.</p>
+<div id="sources"></div><hr style="border:0;border-top:1px solid #293951;margin:16px 0"><h2>Domínios liberados por você</h2><div id="whitelist"></div></section>
+</div><p class="secondary">Importante: o proxy enxerga domínios, não o conteúdo de HTTPS. Anúncios dentro do vídeo do YouTube dependem do complemento instalado e ativo no navegador. Bloquear <code>googlevideo.com</code> quebraria vídeos; por isso é protegido.</p>
 </main><script>
-const TOKEN=__TOKEN__;const headers={'Content-Type':'application/json','X-Qproxy-Admin':TOKEN};
-let blockingPaused=false;
-function humanBytes(n){const u=['B','KB','MB','GB'];let i=0;while(n>=1024&&i<u.length-1){n/=1024;i++}return `${n.toFixed(i?1:0)} ${u[i]}`}
-function esc(v){return String(v??'').replace(/[&<>\"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#39;'}[c]))}
-async function api(url,opts={}){const r=await fetch(url,opts);if(!r.ok)throw new Error(await r.text());return r.json()}
-async function refresh(){try{const d=await api('/api/status');const s=d.stats;blockingPaused=!!d.rules.blocking_paused;pauseButton.textContent=blockingPaused?'Retomar proxy ('+(d.rules.pause_remaining_seconds||0)+'s)':'Pausar proxy (10 min)';blocked.textContent=s.blocked_requests;ads.textContent=s.blocked_ads;trackers.textContent=s.blocked_trackers;bytes.textContent=humanBytes(s.bytes_relayed);rules.textContent=`${d.rules.blocked_domains||0} domínios`;top.innerHTML=s.top_blocked.map(([h,n])=>`<tr><td>${esc(h)}</td><td>${n}</td></tr>`).join('')||'<tr><td colspan=2 class=muted>Nenhum bloqueio ainda.</td></tr>';whitelist.innerHTML=(d.rules.whitelist||[]).map(h=>`<span class=tag>${esc(h)}</span>`).join(' ')||'Nenhum domínio liberado manualmente.';recent.innerHTML=s.recent.slice(0,30).map(e=>`<tr><td class=${e.action==='blocked'?'blocked':'allowed'}>${esc(e.action)}</td><td>${esc(e.host)}</td><td>${esc(e.protocol)}</td><td>${esc(e.category||'-')}</td><td>${e.action==='blocked'?`<button class=btn data-host="${encodeURIComponent(e.host)}" onclick="allowHost(decodeURIComponent(this.dataset.host))">liberar</button>`:''}</td></tr>`).join('');updateStatus.textContent=(d.updates||[]).map(x=>`${x.name}: ${x.ok?'OK':'falhou'}`).join(' • ')}catch(e){updateStatus.textContent='Erro: '+e.message}}
-async function togglePause(){try{await api(blockingPaused?'/api/resume':'/api/pause',{method:'POST',headers,body:'{}'});await refresh()}catch(e){updateStatus.textContent='Erro: '+e.message}}
-async function allowHost(host){await api('/api/whitelist',{method:'POST',headers,body:JSON.stringify({domain:host})});refresh()}
-async function addWhitelist(){const host=domain.value.trim();if(!host)return;await allowHost(host);domain.value=''}
-async function updateLists(){updateStatus.textContent='Atualizando listas...';try{await api('/api/update-lists',{method:'POST',headers,body:'{}'});await refresh()}catch(e){updateStatus.textContent='Falha: '+e.message}}
-refresh();setInterval(refresh,2500);
+const TOKEN=__TOKEN__;
+const headers={'Content-Type':'application/json','X-Qproxy-Admin':TOKEN};
+const el=id=>document.getElementById(id);
+let page=1,total=0,limit=40,paused=false,refreshing=false;
+function esc(value){return String(value??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]))}
+function setMessage(value,error=false){el('message').textContent=value;el('message').className=error?'bad':'ok'}
+function humanBytes(n){let i=0;const u=['B','KB','MB','GB'];while(n>=1024&&i<u.length-1){n/=1024;i++}return n.toFixed(i?1:0)+' '+u[i]}
+async function api(url,options={}){const response=await fetch(url,options);const data=await response.json();if(!response.ok)throw Error(data.error||response.statusText);return data}
+async function post(url,data){return api(url,{method:'POST',headers,body:JSON.stringify(data||{})})}
+function actionButton(action,host,text){return '<button class="btn" data-action="'+esc(action)+'" data-domain="'+esc(host)+'">'+esc(text)+'</button>'}
+function renderRecent(recent){
+ el('recent').innerHTML=(recent||[]).slice(0,35).map(x=>{
+ const blocked=x.action==='blocked';
+ return '<tr><td class="'+(blocked?'bad':'ok')+'">'+(blocked?'Bloqueado':'Permitido')+'</td><td>'+esc(x.host)+'</td><td>'+actionButton(blocked?'allow':'block',x.host,blocked?'Liberar':'Bloquear')+'</td></tr>'
+ }).join('')||'<tr><td colspan="3">Nenhuma conexão registrada</td></tr>';
+}
+async function refreshStatus(){
+ if(refreshing)return;refreshing=true;
+ try{
+ const d=await api('/api/status');paused=!!d.rules.blocking_paused;
+ el('pause').textContent=paused?'Retomar bloqueio ('+(d.rules.pause_remaining_seconds||0)+'s)':'Pausar bloqueio (10 min)';
+ el('blocked').textContent=d.stats.blocked_requests;el('count').textContent=d.rules.blocked_domains||0;
+ el('manualCount').textContent=d.rules.manual_domains||0;el('bytes').textContent=humanBytes(d.stats.bytes_relayed||0);
+ renderRecent(d.stats.recent);
+ const sources=d.updates||[];
+ el('sources').innerHTML=sources.map(x=>'<p><b>'+esc(x.name)+'</b> · <span class="'+(x.ok?'ok':'bad')+'">'+(x.ok?'OK':x.cached?'Cache em uso':'Falha')+'</span> · '+(x.updated_at?esc(new Date(x.updated_at).toLocaleString('pt-BR')):'Aguardando download')+(x.rules?' · '+x.rules+' regras':'')+(x.error?'<span class="secondary"> · '+esc(x.error)+'</span>':'')+'</p>').join('')||'Nenhuma fonte configurada';
+ el('whitelist').innerHTML=(d.rules.whitelist||[]).map(host=>'<p>'+esc(host)+' '+actionButton('unallow',host,'Remover liberação')+'</p>').join('')||'<p>Nenhuma liberação manual.</p>';
+ }catch(e){setMessage('Falha ao consultar estado: '+e.message,true)}finally{refreshing=false}
+}
+async function refreshRules(){
+ const q=new URLSearchParams({search:el('search').value.trim(),scope:el('scope').value,page:String(page),limit:String(limit)});
+ try{
+ const d=await api('/api/rules?'+q.toString());total=d.total;
+ el('resultSummary').textContent=d.total+' domínio(s) encontrado(s)';
+ el('pageLabel').textContent='Página '+page+' / '+Math.max(1,Math.ceil(total/limit));
+ el('rulesTable').innerHTML=d.items.map(x=>'<tr><td>'+esc(x.domain)+(x.whitelisted?' <span class="pill">liberado</span>':'')+'</td><td>'+esc(x.source)+'</td><td>'+esc(x.category)+'</td><td>'+(x.manual?actionButton('unblock',x.domain,'Remover meu bloqueio'):actionButton('allow',x.domain,'Liberar'))+'</td></tr>').join('')||'<tr><td colspan="4">Nenhuma regra encontrada</td></tr>';
+ }catch(e){setMessage('Erro ao consultar lista: '+e.message,true)}
+}
+async function perform(action,domain){
+ try{
+ if(action==='block'){await post('/api/blocklist',{domain});setMessage(domain+' bloqueado por você')}
+ else if(action==='unblock'){await post('/api/blocklist/remove',{domain});setMessage('Bloqueio manual removido: '+domain)}
+ else if(action==='allow'){await post('/api/whitelist',{domain});setMessage('Domínio liberado: '+domain)}
+ else if(action==='unallow'){await post('/api/whitelist/remove',{domain});setMessage('Liberação removida: '+domain)}
+ else if(action==='pause'){await post(paused?'/api/resume':'/api/pause');setMessage(paused?'Bloqueio retomado':'Bloqueio pausado por 10 minutos')}
+ else if(action==='update'){el('update').disabled=true;setMessage('Atualizando listas externas...');await post('/api/update-lists');setMessage('Verificação concluída. Confira o estado de cada fonte.')}
+ else if(action==='search'){page=1}
+ else if(action==='prev'){page=Math.max(1,page-1)}
+ else if(action==='next'){if(page*limit<total)page+=1}
+ await refreshStatus();await refreshRules();
+ }catch(e){setMessage(e.message,true)}finally{el('update').disabled=false}
+}
+document.addEventListener('click',event=>{
+ const button=event.target.closest('button[data-action]');if(!button)return;
+ perform(button.dataset.action,button.dataset.domain||'');
+});
+el('blockForm').addEventListener('submit',event=>{event.preventDefault();const domain=el('blockDomain').value.trim();perform('block',domain);el('blockDomain').value=''});
+el('allowForm').addEventListener('submit',event=>{event.preventDefault();const domain=el('allowDomain').value.trim();perform('allow',domain);el('allowDomain').value=''});
+el('scope').addEventListener('change',()=>{page=1;refreshRules()});
+el('search').addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();page=1;refreshRules()}});
+refreshStatus();refreshRules();setInterval(refreshStatus,5000);
 </script></body></html>'''
 
 
@@ -52,7 +140,7 @@ class DashboardServer:
         dashboard = self
 
         class Handler(BaseHTTPRequestHandler):
-            server_version = "QproxyDashboard/0.2"
+            server_version = "QproxyDashboard/0.3.5"
 
             def log_message(self, fmt, *args):
                 LOG.debug("dashboard " + fmt, *args)
@@ -71,9 +159,14 @@ class DashboardServer:
                 return secrets.compare_digest(self.headers.get("X-Qproxy-Admin", ""), dashboard.token)
 
             def _body_json(self) -> dict:
-                length = min(int(self.headers.get("Content-Length", "0") or 0), 4096)
-                raw = self.rfile.read(length) if length else b"{}"
-                return json.loads(raw.decode("utf-8"))
+                size = int(self.headers.get("Content-Length", "0") or 0)
+                if size < 0 or size > 4096:
+                    raise ValueError("Conteúdo inválido ou grande demais")
+                raw = self.rfile.read(size) if size else b"{}"
+                data = json.loads(raw.decode("utf-8"))
+                if not isinstance(data, dict):
+                    raise ValueError("Esperado um objeto JSON")
+                return data
 
             def do_GET(self):
                 path = urlsplit(self.path).path
@@ -89,6 +182,17 @@ class DashboardServer:
                     return
                 if path == "/api/status":
                     self._json(200, {"stats": dashboard.stats.snapshot(), "rules": dashboard.rules.snapshot(), "updates": dashboard.updater.status()})
+                    return
+                if path == "/api/rules":
+                    try:
+                        params = parse_qs(urlsplit(self.path).query)
+                        q = params.get("search", [""])[0]
+                        scope = params.get("scope", ["all"])[0]
+                        page = int(params.get("page", ["1"])[0])
+                        limit = int(params.get("limit", ["40"])[0])
+                        self._json(200, dashboard.rules.list_rules(q, scope, page, limit))
+                    except (ValueError, TypeError) as exc:
+                        self._json(400, {"error": str(exc)})
                     return
                 self._json(404, {"error": "not_found"})
 
@@ -106,6 +210,14 @@ class DashboardServer:
                         dashboard.rules.resume()
                         self._json(200, {"ok": True, "rules": dashboard.rules.snapshot()})
                         return
+                    if path == "/api/blocklist":
+                        domain = dashboard.rules.add_to_blocklist(str(self._body_json().get("domain", "")))
+                        self._json(200, {"ok": True, "domain": domain})
+                        return
+                    if path == "/api/blocklist/remove":
+                        domain = dashboard.rules.remove_from_blocklist(str(self._body_json().get("domain", "")))
+                        self._json(200, {"ok": True, "domain": domain})
+                        return
                     if path == "/api/whitelist":
                         domain = dashboard.rules.add_to_whitelist(str(self._body_json().get("domain", "")))
                         self._json(200, {"ok": True, "domain": domain})
@@ -122,9 +234,9 @@ class DashboardServer:
                 except (ValueError, json.JSONDecodeError) as exc:
                     self._json(400, {"error": str(exc)})
                     return
-                except Exception as exc:
+                except Exception:
                     LOG.exception("Erro no dashboard")
-                    self._json(500, {"error": str(exc)})
+                    self._json(500, {"error": "Falha interna ao executar ação"})
                     return
                 self._json(404, {"error": "not_found"})
 
