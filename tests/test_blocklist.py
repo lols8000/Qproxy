@@ -87,6 +87,53 @@ class DomainMatcherTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 rules.pause_for(3600)
 
+    def test_manual_blocklist_persists_and_overrides_remote_exceptions(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            rules_path = root / "remote.txt"
+            whitelist = root / "whitelist.txt"
+            manual = root / "manual.txt"
+            rules_path.write_text("@@||ads.example.test^\n||other.example.test^\n", encoding="utf-8")
+            rules = RuleManager(
+                [(rules_path, "ad")],
+                [whitelist],
+                ["googlevideo.com"],
+                manual,
+            )
+            self.assertFalse(rules.is_blocked("ads.example.test"))
+            rules.add_to_blocklist("ads.example.test")
+            self.assertTrue(rules.is_blocked("sub.ads.example.test"))
+            self.assertEqual(rules.evaluate("ads.example.test").category, "manual")
+            self.assertIn("ads.example.test", manual.read_text(encoding="utf-8"))
+            rules.reload()
+            self.assertTrue(rules.is_blocked("ads.example.test"))
+            with self.assertRaisesRegex(ValueError, "protegido"):
+                rules.add_to_blocklist("rr.googlevideo.com")
+            rules.add_to_whitelist("ads.example.test")
+            self.assertFalse(rules.is_blocked("ads.example.test"))
+            self.assertTrue(rules.is_blocked("other.example.test"))
+            rules.remove_from_whitelist("ads.example.test")
+            self.assertTrue(rules.is_blocked("ads.example.test"))
+            rules.remove_from_blocklist("ads.example.test")
+            self.assertFalse(rules.is_blocked("ads.example.test"))
+
+    def test_rules_listing_search_and_pagination(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            list_path = root / "list.txt"
+            list_path.write_text("ads.one.test\nads.two.test\ntracker.three.test\n", encoding="utf-8")
+            rules = RuleManager([(list_path, "tracker")], [], manual_blocklist_path=root / "manual.txt")
+            rules.add_to_blocklist("promo.four.test")
+            result = rules.list_rules("ads.", page=1, limit=1)
+            self.assertEqual(result["total"], 2)
+            self.assertEqual(len(result["items"]), 1)
+            self.assertEqual(result["items"][0]["domain"], "ads.one.test")
+            self.assertEqual(rules.list_rules(scope="manual")["total"], 1)
+            self.assertEqual(rules.list_rules(scope="manual")["items"][0]["source"], "Você")
+            self.assertEqual(rules.list_rules(page=2, limit=2)["total"], 4)
+            with self.assertRaises(ValueError):
+                rules.list_rules(page=0)
+
     def test_static_compatibility_allowlist_wins_remote_block(self):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
