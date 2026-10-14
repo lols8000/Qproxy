@@ -1,4 +1,4 @@
-# Qproxy V3.4
+# Qproxy V3.5
 
 Qproxy combina três camadas:
 
@@ -163,6 +163,36 @@ O Companion **não acelera mais propagandas**, **não avança a posição do ví
 Em anúncios não puláveis, o vídeo publicitário pode continuar aparecendo: essa decisão evita travar ou modificar a velocidade do conteúdo principal. Se o Firefox já ficou com velocidade incorreta, recarregue a página e ajuste a velocidade pelo menu do próprio YouTube uma vez; isso não será mais modificado pela extensão.
 
 Para usar o código novo, substitua a pasta local atualizada, recarregue o Qproxy YouTube Companion em `about:debugging#/runtime/this-firefox` e recarregue a aba do YouTube. Apenas executar o novo `main.py` não atualiza uma extensão temporária já carregada no navegador.
+
+## Central de bloqueios (V3.5)
+
+Execute o Qproxy normalmente e abra o painel local:
+
+```text
+http://127.0.0.1:8900
+```
+
+O painel permite:
+
+- **Consultar todas as regras** por domínio, com busca e paginação (não carrega dezenas de milhares de linhas de uma vez).
+- Ver a **atividade recente** e clicar em **Bloquear** ao lado de uma conexão permitida. Confirme antes que o host pertence à propaganda: bloquear um domínio de imagem ou API pode prejudicar um site legítimo.
+- **Bloquear manualmente**, consultar apenas **Bloqueados por mim** e remover esses bloqueios.
+- **Liberar domínios** pela whitelist; útil quando imagens/funcionalidades deixam de carregar. A whitelist prevalece sobre listas externas e bloqueios manuais.
+- Conferir a última tentativa de atualização de cada fonte e forçar uma atualização com um botão.
+- Pausar o bloqueio do **proxy** por até 10 minutos para diagnosticar falsos positivos (isso não pausa uma extensão do navegador).
+
+Os bloqueios manuais são salvos em `data/manual_blocklist.txt`; o arquivo de liberações continua em `data/whitelist.txt`. Ambos sobrevivem a reinicializações e atualizações de listas. Se uma regra manual for removida mas também fizer parte de uma lista externa, o domínio continuará bloqueado até ser colocado na whitelist.
+
+### Fontes confiáveis e atualizações
+
+A V3.5 inclui o arquivo de hosts consolidado de [StevenBlack/hosts](https://github.com/StevenBlack/hosts), além das fontes já usadas EasyList e EasyPrivacy. O StevenBlack reúne listas mantidas pela comunidade e possui formato `hosts`, apropriado ao filtro por domínio do Qproxy.
+
+**O Qproxy verifica as fontes automaticamente ao iniciar e a cada 6 horas enquanto estiver em execução.** Não há atualização em segundo plano quando o Qproxy está fechado. A atualização valida formato, tamanho e contagem de regras; se a fonte apresentar erro ou redução anormal, mantém a versão em cache. A interface informa falhas.
+
+Atenção: EasyList/EasyPrivacy contêm muitas regras específicas de URL, recurso e página. O proxy só aplica as regras que identificam domínios de forma inequívoca, evitando bloquear imagens/vídeos indevidamente.
+
+**YouTube:** nenhuma lista de domínios garante remover anúncios que usam a mesma origem do vídeo. Para esses casos, é necessário que o YouTube Companion esteja **realmente instalado e ativado** no navegador; não basta que o Qproxy o detecte ou gere um XPI. A extensão não altera velocidade/posição do vídeo.
+
 
 ## YouTube
 

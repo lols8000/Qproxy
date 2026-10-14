@@ -1,8 +1,12 @@
 {
   "listen_host": "127.0.0.1",
   "listen_port": 8899,
-  "blocklists": ["data/blocklist.txt"],
-  "whitelists": ["data/whitelist.txt"],
+  "blocklists": [
+    "data/blocklist.txt"
+  ],
+  "whitelists": [
+    "data/whitelist.txt"
+  ],
   "compatibility_allowlist": [
     "youtube.com",
     "youtu.be",
@@ -20,29 +24,30 @@
   "stats_file": "data/stats.json",
   "remote_cache_dir": "data/remote",
   "update_on_start": true,
-  "update_interval_hours": 24,
+  "update_interval_hours": 6,
   "remote_download_timeout_seconds": 20,
-
   "browser_companion": {
     "auto_detect": true,
     "auto_install": true,
     "package_dir": "data/browser",
     "managed_policy_install": true,
-
     "chrome_extension_id": null,
     "chrome_update_url": "https://clients2.google.com/service/update2/crx",
-
     "edge_extension_id": null,
     "edge_update_url": "https://edge.microsoft.com/extensionwebstorebase/v1/crx",
-
     "brave_extension_id": null,
     "brave_update_url": "https://clients2.google.com/service/update2/crx",
-
     "firefox_extension_id": "qproxy-youtube@qproxy.local",
     "firefox_signed_xpi": null
   },
-
   "remote_blocklists": [
+    {
+      "name": "StevenBlack hosts",
+      "url": "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts",
+      "category": "ad",
+      "filename": "stevenblack-hosts.txt",
+      "min_rules": 2000
+    },
     {
       "name": "EasyList",
       "url": "https://easylist.to/easylist/easylist.txt",
@@ -55,5 +60,6 @@
       "category": "tracker",
       "filename": "easyprivacy.txt"
     }
-  ]
+  ],
+  "manual_blocklist_file": "data/manual_blocklist.txt"
 }

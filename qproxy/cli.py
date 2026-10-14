@@ -27,7 +27,7 @@ def build_runtime(config: Config, config_path: str | None):
     for source in config.remote_blocklists:
         block_sources.append((updater.source_path(cache_dir, source), source.category))
     whitelist_paths = [_resolve(base, p) for p in config.whitelists]
-    rules = RuleManager(block_sources, whitelist_paths, config.compatibility_allowlist)
+    rules = RuleManager(block_sources, whitelist_paths, config.compatibility_allowlist, _resolve(base, config.manual_blocklist_file))
     stats = StatsStore(_resolve(base, config.stats_file))
     return rules, stats, updater
 
@@ -53,7 +53,7 @@ async def _run(config: Config, rules: RuleManager, stats: StatsStore, updater: B
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Qproxy V2 - proxy local com bloqueio de anúncios e trackers por domínio")
+    parser = argparse.ArgumentParser(description="Qproxy V3.5 - proxy local com listas de bloqueio atualizadas e regras manuais")
     parser.add_argument("--config", default="config.example.json", help="Arquivo JSON de configuração")
     parser.add_argument("--host", help="Sobrescreve listen_host")
     parser.add_argument("--port", type=int, help="Sobrescreve listen_port")
