@@ -21,6 +21,14 @@ DEFAULT_REMOTE_BLOCKLISTS = [
     },
 ]
 
+STEVENBLACK_HOSTS = {
+    "name": "StevenBlack hosts",
+    "url": "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts",
+    "category": "ad",
+    "filename": "stevenblack-hosts.txt",
+    "min_rules": 2000,
+}
+
 DEFAULT_COMPATIBILITY_ALLOWLIST = [
     "youtube.com",
     "youtu.be",
@@ -38,6 +46,7 @@ class RemoteListSource:
     url: str
     category: str = "ad"
     filename: str | None = None
+    min_rules: int = 10
 
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> "RemoteListSource":
@@ -50,6 +59,7 @@ class RemoteListSource:
                 if value.get("filename")
                 else None
             ),
+            min_rules=int(value.get("min_rules", 10)),
         )
 
 
@@ -105,6 +115,7 @@ class Config:
     whitelists: list[str] = field(
         default_factory=lambda: ["data/whitelist.txt"]
     )
+    manual_blocklist_file: str = "data/manual_blocklist.txt"
     compatibility_allowlist: list[str] = field(
         default_factory=lambda: list(
             DEFAULT_COMPATIBILITY_ALLOWLIST
@@ -123,11 +134,11 @@ class Config:
     remote_blocklists: list[RemoteListSource] = field(
         default_factory=lambda: [
             RemoteListSource.from_dict(v)
-            for v in DEFAULT_REMOTE_BLOCKLISTS
+            for v in [STEVENBLACK_HOSTS, *DEFAULT_REMOTE_BLOCKLISTS]
         ]
     )
     update_on_start: bool = True
-    update_interval_hours: float = 24.0
+    update_interval_hours: float = 6.0
     remote_download_timeout_seconds: float = 20.0
 
     browser_companion: BrowserCompanionConfig = field(
