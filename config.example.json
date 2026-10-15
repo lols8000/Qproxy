@@ -61,5 +61,6 @@
       "filename": "easyprivacy.txt"
     }
   ],
-  "manual_blocklist_file": "data/manual_blocklist.txt"
+  "manual_blocklist_file": "data/manual_blocklist.txt",
+  "happy_eyeballs_delay_seconds": 0.25
 }
