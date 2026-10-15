@@ -127,6 +127,20 @@ class ProxyServer:
             except Exception:
                 pass
 
+    async def _open_upstream(self, host: str, port: int):
+        # Happy Eyeballs: evita aguardar um IPv6 lento antes de tentar
+        # IPv4 em hosts dual-stack. Não altera nem inspeciona TLS.
+        started = asyncio.get_running_loop().time()
+        delay = max(0.05, min(float(self.config.happy_eyeballs_delay_seconds), 2.0))
+        streams = await asyncio.wait_for(
+            asyncio.open_connection(
+                host, port, happy_eyeballs_delay=delay, interleave=1
+            ),
+            timeout=self.config.connect_timeout_seconds,
+        )
+        self.stats.record_connect(asyncio.get_running_loop().time() - started)
+        return streams
+
     async def _handle_connect(self, target: str, client_r: asyncio.StreamReader, client_w: asyncio.StreamWriter) -> None:
         host, port = _parse_host_port(target, 443)
         host = normalize_host(host)
@@ -140,11 +154,8 @@ class ProxyServer:
         self.stats.record(host, "allowed", "https", rule=decision.rule)
         if self.config.log_allowed:
             LOG.info("ALLOW HTTPS %s:%s", host, port)
-        upstream_r, upstream_w = await asyncio.wait_for(
-            asyncio.open_connection(host, port),
-            timeout=self.config.connect_timeout_seconds,
-        )
-        client_w.write(b"HTTP/1.1 200 Connection Established\r\nProxy-Agent: Qproxy/0.2\r\n\r\n")
+        upstream_r, upstream_w = await self._open_upstream(host, port)
+        client_w.write(b"HTTP/1.1 200 Connection Established\r\nProxy-Agent: Qproxy/0.3.6\r\n\r\n")
         await client_w.drain()
         relayed = await self._relay_bidirectional(client_r, client_w, upstream_r, upstream_w)
         self.stats.add_bytes(relayed)
@@ -166,10 +177,7 @@ class ProxyServer:
         self.stats.record(host, "allowed", "http", rule=decision.rule)
         if self.config.log_allowed:
             LOG.info("ALLOW HTTP %s %s", host, target)
-        upstream_r, upstream_w = await asyncio.wait_for(
-            asyncio.open_connection(host, port),
-            timeout=self.config.connect_timeout_seconds,
-        )
+        upstream_r, upstream_w = await self._open_upstream(host, port)
         upstream_w.write(rewritten)
         await upstream_w.drain()
         relayed = await self._relay_bidirectional(client_r, client_w, upstream_r, upstream_w)
