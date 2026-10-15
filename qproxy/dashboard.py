@@ -15,7 +15,7 @@ LOG = logging.getLogger("qproxy")
 
 DASHBOARD_HTML = r'''<!doctype html>
 <html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Qproxy V3.5 · Controle de anúncios</title>
+<title>Qproxy V3.6 · Controle de anúncios</title>
 <style>
 :root{color-scheme:dark;--bg:#07101d;--panel:#101b2d;--line:#293951;--text:#e9f1ff;--muted:#aabbd6;--green:#39d98a;--red:#ff6577;--blue:#5b91ff}
 *{box-sizing:border-box}body{margin:0;font:14px/1.5 Segoe UI,system-ui,sans-serif;background:linear-gradient(135deg,#07101d,#0d1728);color:var(--text)}
@@ -43,6 +43,7 @@ td:first-child{word-break:break-word}.ok{color:var(--green)}.bad{color:var(--red
 <div class="panel"><div class="label">Bloqueados por você</div><div class="metric" id="manualCount">0</div></div>
 <div class="panel"><div class="label">Tráfego retransmitido</div><div class="metric" id="bytes">0 B</div></div>
 </div>
+<div class="panel" style="margin-top:0"><div class="row" style="justify-content:space-between"><div><b>Desempenho de conexão</b><p>Tempo médio observado para abrir conexões permitidas: <strong id="connectAvg">—</strong> · Conexões acima de 1s: <span id="slowConnects">0</span> · Amostras: <span id="connectSamples">0</span></p></div></div><p>O proxy otimiza a abertura das conexões, mas não aumenta a velocidade contratada do acesso à internet.</p></div>
 <div id="message" role="status" aria-live="polite"></div>
 <div class="two">
 <section class="panel"><h2>Bloquear um domínio</h2><p>Use somente o host, por exemplo <code>ads.exemplo.com</code>. O bloqueio vale para todos os sites que usam esse host.</p>
@@ -58,7 +59,7 @@ td:first-child{word-break:break-word}.ok{color:var(--green)}.bad{color:var(--red
 <section class="panel"><h2>Atividade recente</h2><p>Uma conexão permitida não significa necessariamente propaganda. Confira o host antes de bloquear.</p>
 <div class="table-wrap"><table><thead><tr><th>Estado</th><th>Domínio</th><th>Ação</th></tr></thead><tbody id="recent"></tbody></table></div></section>
 <section class="panel"><h2>Fontes e atualizações</h2><p>As listas são verificadas automaticamente a cada 6 horas enquanto o programa está aberto. Se uma atualização falhar, o cache anterior é preservado.</p>
-<div id="sources"></div><hr style="border:0;border-top:1px solid #293951;margin:16px 0"><h2>Domínios liberados por você</h2><div id="whitelist"></div></section>
+<div id="sources"></div><hr style="border:0;border-top:1px solid #293951;margin:16px 0"><h2>YouTube no Firefox</h2><p>Para propagandas antes de começar um vídeo, o filtro por domínio do Qproxy não é suficiente. O <a href="https://addons.mozilla.org/pt-BR/firefox/addon/ublock-origin/" target="_blank" rel="noopener noreferrer" style="color:#9cbeff">uBlock Origin (Mozilla Add-ons)</a> aplica filtros de rede e página mais completos. Instale apenas pelo site oficial, com sua confirmação. O complemento Qproxy continua opcional.</p><hr style="border:0;border-top:1px solid #293951;margin:16px 0"><h2>Domínios liberados por você</h2><div id="whitelist"></div></section>
 </div><p class="secondary">Importante: o proxy enxerga domínios, não o conteúdo de HTTPS. Anúncios dentro do vídeo do YouTube dependem do complemento instalado e ativo no navegador. Bloquear <code>googlevideo.com</code> quebraria vídeos; por isso é protegido.</p>
 </main><script>
 const TOKEN=__TOKEN__;
@@ -83,7 +84,7 @@ async function refreshStatus(){
  const d=await api('/api/status');paused=!!d.rules.blocking_paused;
  el('pause').textContent=paused?'Retomar bloqueio ('+(d.rules.pause_remaining_seconds||0)+'s)':'Pausar bloqueio (10 min)';
  el('blocked').textContent=d.stats.blocked_requests;el('count').textContent=d.rules.blocked_domains||0;
- el('manualCount').textContent=d.rules.manual_domains||0;el('bytes').textContent=humanBytes(d.stats.bytes_relayed||0);
+ el('manualCount').textContent=d.rules.manual_domains||0;el('bytes').textContent=humanBytes(d.stats.bytes_relayed||0);el('connectAvg').textContent=d.stats.connect_samples?(d.stats.average_connect_ms+' ms'):'—';el('slowConnects').textContent=d.stats.slow_connects||0;el('connectSamples').textContent=d.stats.connect_samples||0;
  renderRecent(d.stats.recent);
  const sources=d.updates||[];
  el('sources').innerHTML=sources.map(x=>'<p><b>'+esc(x.name)+'</b> · <span class="'+(x.ok?'ok':'bad')+'">'+(x.ok?'OK':x.cached?'Cache em uso':'Falha')+'</span> · '+(x.updated_at?esc(new Date(x.updated_at).toLocaleString('pt-BR')):'Aguardando download')+(x.rules?' · '+x.rules+' regras':'')+(x.error?'<span class="secondary"> · '+esc(x.error)+'</span>':'')+'</p>').join('')||'Nenhuma fonte configurada';
