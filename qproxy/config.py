@@ -122,6 +122,7 @@ class Config:
         )
     )
     connect_timeout_seconds: float = 10.0
+    happy_eyeballs_delay_seconds: float = 0.25
     log_allowed: bool = False
 
     dashboard_enabled: bool = True
