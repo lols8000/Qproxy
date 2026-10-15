@@ -1,23 +1,25 @@
 (() => {
   "use strict";
 
-  // A extensão só interage com controles explícitos da interface.
-  // Não altera HTMLVideoElement (velocidade, posição, áudio ou play/pause).
+  // Somente controles nativos do YouTube. Nunca escreva no
+  // HTMLVideoElement: isso compromete velocidade e reprodução.
   const SKIP_SELECTORS = [
     "button.ytp-ad-skip-button-modern",
     "button.ytp-ad-skip-button",
     ".ytp-skip-ad-button",
-    "button[class*='ytp-ad-skip']",
-    "button[class*='skip-ad']"
+    ".ytp-ad-skip-button-container button",
+    "button[class*='ytp-ad-skip']"
   ];
   const CLOSE_SELECTORS = [
     ".ytp-ad-overlay-close-button",
     ".ytp-ad-overlay-close-container button"
   ];
 
-  const RETRY_MS = 1000;
+  const RETRY_MS = 700;
   let lastSkipAt = 0;
   let lastCloseAt = 0;
+  let observedPlayer = null;
+  let observer = null;
 
   function activeAdPlayer() {
     const player = document.querySelector("#movie_player");
@@ -32,7 +34,7 @@
     for (const selector of selectors) {
       for (const element of player.querySelectorAll(selector)) {
         if (!(element instanceof HTMLElement)) continue;
-        if (element.disabled || element.matches("[disabled], [aria-disabled='true']")) continue;
+        if (element.matches("[disabled], [aria-disabled='true']")) continue;
         const style = getComputedStyle(element);
         const rect = element.getBoundingClientRect();
         if (
@@ -66,6 +68,37 @@
     lastCloseAt = clickControl(player, CLOSE_SELECTORS, lastCloseAt);
   }
 
-  setInterval(sweep, 500);
+  function watchPlayer() {
+    const player = document.querySelector("#movie_player");
+    if (player === observedPlayer) return;
+    if (observer) observer.disconnect();
+    observedPlayer = player;
+    if (!player) return;
+
+    // Observação estreita: só o atributo class do player.
+    // Não monitora mutações de toda a página nem altera a mídia.
+    observer = new MutationObserver(sweep);
+    observer.observe(player, {
+      attributes: true,
+      attributeFilter: ["class"],
+      childList: false,
+      subtree: false
+    });
+    sweep();
+  }
+
+  // Em navegação SPA, o YouTube pode substituir o player sem
+  // recarregar a página; a observação deve ser reconectada.
+  document.addEventListener("yt-navigate-finish", () => {
+    watchPlayer();
+    sweep();
+  });
+
+  setInterval(() => {
+    watchPlayer();
+    sweep();
+  }, 200);
+
+  watchPlayer();
   sweep();
 })();

@@ -67,3 +67,9 @@ O arquivo `network_rules.json` adiciona regras DNR para provedores publicitário
 O YouTube altera o player e a estrutura do DOM com frequência. O Companion evita bloquear os domínios de vídeo para preservar a reprodução.
 
 **Firefox (atualização de extensão temporária):** abra `about:debugging#/runtime/this-firefox`, clique em **Recarregar** na extensão Qproxy YouTube Companion e recarregue a aba do YouTube. Se ela não aparecer, use **Carregar extensão temporária** e selecione `browser_extension/manifest.json`.
+
+## Desempenho na V3.6
+
+O script observa apenas o atributo `class` do player do YouTube, e varre os botões a cada ~200 ms como fallback. Ele não altera velocidade ou posição da mídia.
+
+Para anúncios pré-vídeo não puláveis, o complemento só pode tentar os controles nativos. No Firefox, a alternativa mais robusta para filtros de requisições e scriptlets é [uBlock Origin na Mozilla](https://addons.mozilla.org/pt-BR/firefox/addon/ublock-origin/), instalado com consentimento do usuário.

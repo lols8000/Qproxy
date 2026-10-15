@@ -162,6 +162,8 @@ class RuleManager:
             if (domain := normalize_host(raw)) and _hostname_like(domain)
         )
         self._lock = RLock()
+        # Serializa edições e recargas sem prender consultas ao matcher.
+        self._reload_lock = RLock()
         self._paused_until = 0.0
         self._matcher = DomainMatcher()
         self._manual_blocks: set[str] = set()
@@ -189,18 +191,17 @@ class RuleManager:
         temp.replace(path)
 
     def reload(self) -> dict[str, int]:
-        with self._lock:
+        # O matcher antigo continua atendendo conexões enquanto a nova
+        # lista é construída. Só o swap final exige lock dos leitores.
+        with self._reload_lock:
             matcher = DomainMatcher()
             blocked = 0
             allowed = 0
-
             for path, category in self.block_sources:
                 blocked += matcher.load_file(path, category=category)
-
             for domain in self.static_allowlist:
                 matcher.add_allow(domain)
                 allowed += 1
-
             for path in self.whitelist_paths:
                 allowed += matcher.load_file(path, default_allow=True)
 
@@ -208,12 +209,8 @@ class RuleManager:
             manual_blocks = self._read_domains(self.manual_blocklist_path)
             for domain in manual_blocks:
                 matcher.add_block(domain, category="manual", origin="Você")
-
-            self._matcher = matcher
-            self._manual_blocks = manual_blocks
-            self._user_whitelist = user_whitelist
-            self._ordered_blocks = tuple(sorted(matcher.blocked))
-            self.last_load_counts = {
+            ordered = tuple(sorted(matcher.blocked))
+            counts = {
                 "blocked_rules": blocked + len(manual_blocks),
                 "allow_rules": allowed,
                 "blocked_domains": len(matcher.blocked),
@@ -221,7 +218,13 @@ class RuleManager:
                 "manual_domains": len(manual_blocks),
                 "compatibility_domains": len(self.static_allowlist),
             }
-            return dict(self.last_load_counts)
+            with self._lock:
+                self._matcher = matcher
+                self._manual_blocks = manual_blocks
+                self._user_whitelist = user_whitelist
+                self._ordered_blocks = ordered
+                self.last_load_counts = counts
+            return dict(counts)
 
     def _protected(self, host: str) -> bool:
         return any(
@@ -268,7 +271,7 @@ class RuleManager:
             raise ValueError("Informe apenas o domínio, sem URL ou caminho (ex.: ads.exemplo.com)")
         if self.manual_blocklist_path is None:
             raise RuntimeError("Arquivo de bloqueios manuais não configurado")
-        with self._lock:
+        with self._reload_lock:
             if self._protected(domain):
                 raise ValueError("Domínio protegido para não interromper vídeos ou navegação")
             if any(domain == d or domain.endswith("." + d) for d in self._user_whitelist):
@@ -281,7 +284,7 @@ class RuleManager:
 
     def remove_from_blocklist(self, domain: str) -> str:
         domain = normalize_host(domain)
-        with self._lock:
+        with self._reload_lock:
             if self.manual_blocklist_path is None:
                 raise RuntimeError("Arquivo de bloqueios manuais não configurado")
             domains = set(self._manual_blocks)
@@ -296,7 +299,7 @@ class RuleManager:
             raise ValueError("Domínio inválido")
         if not self.whitelist_paths:
             raise RuntimeError("Nenhum arquivo de whitelist configurado")
-        with self._lock:
+        with self._reload_lock:
             path = self.whitelist_paths[0]
             domains = self._read_domains(path)
             domains.add(domain)
@@ -308,7 +311,7 @@ class RuleManager:
         domain = normalize_host(domain)
         if not self.whitelist_paths:
             raise RuntimeError("Nenhum arquivo de whitelist configurado")
-        with self._lock:
+        with self._reload_lock:
             path = self.whitelist_paths[0]
             domains = self._read_domains(path)
             domains.discard(domain)
@@ -324,23 +327,23 @@ class RuleManager:
             raise ValueError("Parâmetros de listagem inválidos")
         with self._lock:
             matcher = self._matcher
-            domains = sorted(self._manual_blocks) if scope == "manual" else self._ordered_blocks
-            filtered = (domain for domain in domains if query in domain)
-            start = (page - 1) * limit
-            # Limitar a resposta ao tamanho da página, sem mandar a lista completa.
-            total = 0
-            items = []
-            for domain in filtered:
-                if start <= total < start + limit:
-                    items.append({
-                        "domain": domain,
-                        "category": "manual" if domain in self._manual_blocks else matcher.categories.get(domain, "ad"),
-                        "source": "Você" if domain in self._manual_blocks else matcher.origins.get(domain, "local"),
-                        "manual": domain in self._manual_blocks,
-                        "whitelisted": domain in matcher.allowed,
-                    })
-                total += 1
-            return {"total": total, "page": page, "limit": limit, "items": items}
+            manual = self._manual_blocks
+            domains = tuple(sorted(manual)) if scope == "manual" else self._ordered_blocks
+        filtered = (domain for domain in domains if query in domain)
+        start = (page - 1) * limit
+        total = 0
+        items = []
+        for domain in filtered:
+            if start <= total < start + limit:
+                items.append({
+                    "domain": domain,
+                    "category": "manual" if domain in manual else matcher.categories.get(domain, "ad"),
+                    "source": "Você" if domain in manual else matcher.origins.get(domain, "local"),
+                    "manual": domain in manual,
+                    "whitelisted": domain in matcher.allowed,
+                })
+            total += 1
+        return {"total": total, "page": page, "limit": limit, "items": items}
 
     def snapshot(self) -> dict:
         with self._lock:

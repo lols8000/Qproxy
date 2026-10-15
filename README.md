@@ -1,4 +1,4 @@
-# Qproxy V3.5
+# Qproxy V3.6
 
 Qproxy combina três camadas:
 
@@ -193,6 +193,25 @@ Atenção: EasyList/EasyPrivacy contêm muitas regras específicas de URL, recur
 
 **YouTube:** nenhuma lista de domínios garante remover anúncios que usam a mesma origem do vídeo. Para esses casos, é necessário que o YouTube Companion esteja **realmente instalado e ativado** no navegador; não basta que o Qproxy o detecte ou gere um XPI. A extensão não altera velocidade/posição do vídeo.
 
+
+## Desempenho e anúncios antes dos vídeos — V3.6
+
+### Recuperar a agilidade da navegação
+
+- **Atualização das listas fora do loop de rede:** enquanto as listas StevenBlack/EasyList/EasyPrivacy são recarregadas, o proxy mantém as regras anteriores disponíveis. A troca do conjunto atualizado é atômica.
+- **Conexão IPv4/IPv6 com Happy Eyeballs (RFC 8305):** o proxy pode iniciar a segunda tentativa quando a primeira família IP não responde rapidamente; padrão `happy_eyeballs_delay_seconds: 0.25`.
+- **Menos gravações síncronas das estatísticas:** os contadores são gravados a cada 200 requisições, em vez de 25, e salvos normalmente ao encerrar. Em uma falha abrupta podem perder-se os últimos contadores ainda não gravados.
+- **Indicadores de diagnóstico:** o painel apresenta tempo médio de estabelecimento de conexão, quantidade de amostras e conexões acima de 1 segundo.
+
+Essas otimizações reduzem overhead e evitam pausas de processamento; **não aumentam sua banda contratada**. A melhora percebida depende da rede, dos sites e da configuração do navegador. Não foi medida uma porcentagem real de ganho na sua máquina.
+
+### Anúncios ao começar um vídeo no YouTube
+
+O Companion agora verifica o player aproximadamente a cada 200 ms e observa **apenas as alterações da classe do player**, permitindo tentar o botão nativo de pular mais cedo, inclusive em navegação interna do YouTube. Ele **não altera velocidade, posição, reprodução ou volume**, para evitar o problema anterior.
+
+Anúncios de início de vídeo que o YouTube entrega pelo mesmo domínio do conteúdo **não podem ser eliminados com segurança pelo proxy HTTPS sem inspeção de conteúdo**. A melhoria na detecção não garante que um anúncio não pulável desapareça.
+
+**Se você usa Firefox**, o caminho mais eficaz para filtragem completa de anúncios do YouTube é o [uBlock Origin oficial, na Mozilla Add-ons](https://addons.mozilla.org/pt-BR/firefox/addon/ublock-origin/), que trabalha com regras de rede e de página. Você escolhe instalá-lo no Firefox; o Qproxy não modifica o navegador nem instala extensões de terceiros sem confirmação. Evite configurar duas extensões para manipular os mesmos controles do vídeo se observar conflitos. O Qproxy continua útil para bloquear domínios de publicidade e rastreadores nos demais programas que usam o proxy do sistema.
 
 ## YouTube
 
