@@ -37,7 +37,8 @@ async def _scheduled_updates(config: Config, updater: BlocklistUpdater, rules: R
     while True:
         await asyncio.sleep(delay)
         await asyncio.to_thread(updater.refresh)
-        rules.reload()
+        # O parsing de listas grandes não pode bloquear o loop do proxy.
+        await asyncio.to_thread(rules.reload)
         delay = max(config.update_interval_hours * 3600, 60)
 
 
