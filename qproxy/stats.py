@@ -13,7 +13,7 @@ def _utc_now() -> str:
 
 
 class StatsStore:
-    def __init__(self, path: str | Path, recent_limit: int = 80, save_every: int = 25) -> None:
+    def __init__(self, path: str | Path, recent_limit: int = 80, save_every: int = 200) -> None:
         self.path = Path(path)
         self.recent_limit = recent_limit
         self.save_every = max(1, save_every)
@@ -25,6 +25,9 @@ class StatsStore:
         self.blocked_ads = 0
         self.blocked_trackers = 0
         self.bytes_relayed = 0
+        self.connect_samples = 0
+        self.total_connect_ms = 0.0
+        self.slow_connects = 0
         self.top_blocked: Counter[str] = Counter()
         self.recent: deque[dict[str, Any]] = deque(maxlen=recent_limit)
         self._dirty_events = 0
@@ -44,6 +47,9 @@ class StatsStore:
             self.blocked_ads = int(data.get("blocked_ads", 0))
             self.blocked_trackers = int(data.get("blocked_trackers", 0))
             self.bytes_relayed = int(data.get("bytes_relayed", 0))
+            self.connect_samples = int(data.get("connect_samples", 0))
+            self.total_connect_ms = float(data.get("total_connect_ms", 0.0))
+            self.slow_connects = int(data.get("slow_connects", 0))
             self.top_blocked = Counter(data.get("top_blocked", {}))
 
     def record(self, host: str, action: str, protocol: str, category: str | None = None, rule: str | None = None) -> None:
@@ -74,6 +80,15 @@ class StatsStore:
         if should_save:
             self.save()
 
+    def record_connect(self, duration_seconds: float) -> None:
+        # Telemetria leve para verificar se os ajustes realmente reduziram
+        # o tempo de conexão. Não registra URLs nem payloads.
+        with self._lock:
+            self.connect_samples += 1
+            self.total_connect_ms += max(0.0, duration_seconds * 1000)
+            if duration_seconds >= 1.0:
+                self.slow_connects += 1
+
     def add_bytes(self, amount: int) -> None:
         if amount <= 0:
             return
@@ -90,6 +105,10 @@ class StatsStore:
                 "blocked_ads": self.blocked_ads,
                 "blocked_trackers": self.blocked_trackers,
                 "bytes_relayed": self.bytes_relayed,
+                "connect_samples": self.connect_samples,
+                "average_connect_ms": round(self.total_connect_ms / self.connect_samples, 1) if self.connect_samples else 0.0,
+                "total_connect_ms": round(self.total_connect_ms, 1),
+                "slow_connects": self.slow_connects,
                 "top_blocked": self.top_blocked.most_common(20),
                 "recent": list(self.recent),
             }
