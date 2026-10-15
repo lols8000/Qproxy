@@ -44,7 +44,14 @@ class BrowserExtensionTests(unittest.TestCase):
         self.assertIn("function clickControl(", script)
         self.assertIn("control.click()", script)
         self.assertIn('player.classList.contains("ad-showing")', script)
-        self.assertNotIn("MutationObserver", script)
+        # Observer limitado ao estado do player, nunca na página toda.
+        self.assertIn("new MutationObserver(sweep)", script)
+        self.assertIn('attributeFilter: ["class"]', script)
+        self.assertIn("subtree: false", script)
+        self.assertIn("childList: false", script)
+        self.assertNotIn("document.documentElement", script)
+        self.assertIn("yt-navigate-finish", script)
+        self.assertIn("}, 200)", script)
         # O complemento jamais pode alterar velocidade/posição/áudio do vídeo.
         for forbidden in ("playbackRate", "currentTime", ".muted", ".volume", "video.play(", "video.pause("):
             with self.subTest(forbidden=forbidden):
