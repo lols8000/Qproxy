@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Qproxy YouTube Companion",
-  "version": "0.1.4",
-  "description": "Complemento de YouTube com bloqueio conservador e uso do botão nativo de pular, sem alterar reprodução, áudio ou velocidade.",
+  "version": "0.2.0",
+  "description": "Qproxy no navegador: bloqueio de URLs de anúncios por regras atualizadas, sem alterar a reprodução de vídeos.",
   "content_scripts": [
     {
       "matches": [
@@ -25,7 +25,8 @@
     }
   },
   "permissions": [
-    "declarativeNetRequest"
+    "declarativeNetRequest",
+    "alarms"
   ],
   "declarative_net_request": {
     "rule_resources": [
@@ -35,5 +36,14 @@
         "path": "network_rules.json"
       }
     ]
+  },
+  "host_permissions": [
+    "http://127.0.0.1/*"
+  ],
+  "background": {
+    "scripts": [
+      "background.js"
+    ],
+    "service_worker": "background.js"
   }
 }
