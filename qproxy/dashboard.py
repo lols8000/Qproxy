@@ -15,7 +15,7 @@ LOG = logging.getLogger("qproxy")
 
 DASHBOARD_HTML = r'''<!doctype html>
 <html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Qproxy V3.6 · Controle de anúncios</title>
+<title>Qproxy V3.7 · Controle de anúncios</title>
 <style>
 :root{color-scheme:dark;--bg:#07101d;--panel:#101b2d;--line:#293951;--text:#e9f1ff;--muted:#aabbd6;--green:#39d98a;--red:#ff6577;--blue:#5b91ff}
 *{box-sizing:border-box}body{margin:0;font:14px/1.5 Segoe UI,system-ui,sans-serif;background:linear-gradient(135deg,#07101d,#0d1728);color:var(--text)}
@@ -59,7 +59,7 @@ td:first-child{word-break:break-word}.ok{color:var(--green)}.bad{color:var(--red
 <section class="panel"><h2>Atividade recente</h2><p>Uma conexão permitida não significa necessariamente propaganda. Confira o host antes de bloquear.</p>
 <div class="table-wrap"><table><thead><tr><th>Estado</th><th>Domínio</th><th>Ação</th></tr></thead><tbody id="recent"></tbody></table></div></section>
 <section class="panel"><h2>Fontes e atualizações</h2><p>As listas são verificadas automaticamente a cada 6 horas enquanto o programa está aberto. Se uma atualização falhar, o cache anterior é preservado.</p>
-<div id="sources"></div><hr style="border:0;border-top:1px solid #293951;margin:16px 0"><h2>YouTube no Firefox</h2><p>Para propagandas antes de começar um vídeo, o filtro por domínio do Qproxy não é suficiente. O <a href="https://addons.mozilla.org/pt-BR/firefox/addon/ublock-origin/" target="_blank" rel="noopener noreferrer" style="color:#9cbeff">uBlock Origin (Mozilla Add-ons)</a> aplica filtros de rede e página mais completos. Instale apenas pelo site oficial, com sua confirmação. O complemento Qproxy continua opcional.</p><hr style="border:0;border-top:1px solid #293951;margin:16px 0"><h2>Domínios liberados por você</h2><div id="whitelist"></div></section>
+<div id="sources"></div><hr style="border:0;border-top:1px solid #293951;margin:16px 0"><h2>Filtros do Qproxy no navegador</h2><p>O Qproxy YouTube Companion aplica regras de rede específicas dentro do Firefox, Chrome, Edge e Brave, sincronizadas com as listas EasyList/EasyPrivacy do Qproxy. A extensão precisa estar instalada e autorizada pelo navegador. Não modifica velocidade nem posição dos vídeos.</p><hr style="border:0;border-top:1px solid #293951;margin:16px 0"><h2>Domínios liberados por você</h2><div id="whitelist"></div></section>
 </div><p class="secondary">Importante: o proxy enxerga domínios, não o conteúdo de HTTPS. Anúncios dentro do vídeo do YouTube dependem do complemento instalado e ativo no navegador. Bloquear <code>googlevideo.com</code> quebraria vídeos; por isso é protegido.</p>
 </main><script>
 const TOKEN=__TOKEN__;
@@ -180,6 +180,11 @@ class DashboardServer:
                     self.send_header("Content-Security-Policy", "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'")
                     self.end_headers()
                     self.wfile.write(body)
+                    return
+                if path == "/api/browser-rules":
+                    # Apenas regras públicas de bloqueio, sem histórico,
+                    # identificadores de usuários ou dados de navegação.
+                    self._json(200, dashboard.updater.browser_rules())
                     return
                 if path == "/api/status":
                     self._json(200, {"stats": dashboard.stats.snapshot(), "rules": dashboard.rules.snapshot(), "updates": dashboard.updater.status()})
