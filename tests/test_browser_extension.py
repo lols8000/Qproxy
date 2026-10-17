@@ -1,4 +1,6 @@
 import json
+import shutil
+import subprocess
 import unittest
 from pathlib import Path
 
@@ -29,6 +31,19 @@ class BrowserExtensionTests(unittest.TestCase):
         for forbidden in ("playbackRate", "currentTime", "video.pause(", "video.play("):
             self.assertNotIn(forbidden, script)
 
+
+    def test_local_rules_origin_and_background_csp(self):
+        manifest = json.loads((EXT / "manifest.json").read_text(encoding="utf-8"))
+        self.assertIn("http://127.0.0.1:8900", manifest["content_security_policy"]["extension_pages"])
+        self.assertIn("http://127.0.0.1/*", manifest["host_permissions"])
+
+    @unittest.skipUnless(shutil.which("node"), "Node.js não instalado")
+    def test_background_javascript_syntax(self):
+        result = subprocess.run(
+            ["node", "--check", str(EXT / "background.js")],
+            capture_output=True, text=True, timeout=10,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_network_rules_only_target_youtube_third_party_without_images(self):
         manifest = json.loads((EXT / "manifest.json").read_text(encoding="utf-8"))
