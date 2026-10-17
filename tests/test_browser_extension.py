@@ -15,6 +15,20 @@ class BrowserExtensionTests(unittest.TestCase):
         self.assertIn("*://*.youtube.com/*", scripts["matches"])
         for filename in scripts["js"] + scripts["css"]:
             self.assertTrue((EXT / filename).is_file(), filename)
+        self.assertIn("alarms", manifest["permissions"])
+        self.assertIn("http://127.0.0.1/*", manifest["host_permissions"])
+        self.assertEqual(manifest["background"]["service_worker"], "background.js")
+        self.assertEqual(manifest["background"]["scripts"], ["background.js"])
+        self.assertTrue((EXT / "background.js").is_file())
+
+    def test_browser_filters_stay_separate_from_media_playback(self):
+        script = (EXT / "background.js").read_text(encoding="utf-8")
+        self.assertIn("updateDynamicRules", script)
+        self.assertIn("/api/browser-rules", script)
+        self.assertIn("periodInMinutes: 15", script)
+        for forbidden in ("playbackRate", "currentTime", "video.pause(", "video.play("):
+            self.assertNotIn(forbidden, script)
+
 
     def test_network_rules_only_target_youtube_third_party_without_images(self):
         manifest = json.loads((EXT / "manifest.json").read_text(encoding="utf-8"))
