@@ -73,3 +73,9 @@ O YouTube altera o player e a estrutura do DOM com frequência. O Companion evit
 O script observa apenas o atributo `class` do player do YouTube, e varre os botões a cada ~200 ms como fallback. Ele não altera velocidade ou posição da mídia.
 
 Para anúncios pré-vídeo não puláveis, o complemento só pode tentar os controles nativos. No Firefox, a alternativa mais robusta para filtros de requisições e scriptlets é [uBlock Origin na Mozilla](https://addons.mozilla.org/pt-BR/firefox/addon/ublock-origin/), instalado com consentimento do usuário.
+
+## Filtragem nativa Qproxy — V3.7
+
+O complemento inclui `background.js`, que sincroniza filtros nativos de requisição da central Qproxy. O painel expõe `/api/browser-rules` contendo regras específicas compiladas de EasyList/EasyPrivacy, com atualização automática a cada 15 minutos e persistência de filtros quando o proxy estiver temporariamente offline.
+
+Firefox: `about:debugging#/runtime/this-firefox` → recarregue o complemento temporário depois de atualizar os arquivos locais. Para instalação permanente em Firefox regular, o XPI precisa da assinatura Mozilla. A geração do pacote não é instalação.
