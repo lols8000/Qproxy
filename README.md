@@ -1,4 +1,4 @@
-# Qproxy V3.6
+# Qproxy V3.7
 
 Qproxy combina três camadas:
 
@@ -212,6 +212,17 @@ O Companion agora verifica o player aproximadamente a cada 200 ms e observa **ap
 Anúncios de início de vídeo que o YouTube entrega pelo mesmo domínio do conteúdo **não podem ser eliminados com segurança pelo proxy HTTPS sem inspeção de conteúdo**. A melhoria na detecção não garante que um anúncio não pulável desapareça.
 
 **Se você usa Firefox**, o caminho mais eficaz para filtragem completa de anúncios do YouTube é o [uBlock Origin oficial, na Mozilla Add-ons](https://addons.mozilla.org/pt-BR/firefox/addon/ublock-origin/), que trabalha com regras de rede e de página. Você escolhe instalá-lo no Firefox; o Qproxy não modifica o navegador nem instala extensões de terceiros sem confirmação. Evite configurar duas extensões para manipular os mesmos controles do vídeo se observar conflitos. O Qproxy continua útil para bloquear domínios de publicidade e rastreadores nos demais programas que usam o proxy do sistema.
+
+
+## Qproxy nativo dentro do navegador — V3.7
+
+O próprio **Qproxy YouTube Companion** agora possui um background script compatível com Firefox (event page) e Chrome/Edge/Brave (service worker), sem depender de instalar o uBlock Origin. O Qproxy compila regras de URL e rede reconhecíveis a partir das listas EasyList e EasyPrivacy já baixadas para o proxy, preservando limites de segurança (não bloquear `image`, `media`, nem `main_frame`). O compilador só usa regras conservadoras aplicáveis a páginas do YouTube, com limite de 800 regras. O navegador aplica esses filtros através da API nativa `declarativeNetRequest`, em vez de tentar manipular o vídeo.
+
+Fluxo: `python main.py` → Qproxy atualiza listas externas a cada 6 horas → compila `data/remote/browser_rules.json` → complemento obtém `http://127.0.0.1:8900/api/browser-rules` ao iniciar e a cada 15 minutos → aplica atualização **atômica** das regras. Se o Qproxy ficar offline ou a lista estiver inválida, as regras já instaladas no navegador são preservadas.
+
+**Instalação:** este recurso só funciona se o próprio complemento estiver **realmente instalado e autorizado** no navegador. Em Firefox normal, instalação permanente ainda depende de XPI assinado pela Mozilla; empacotar XPI não equivale a assinar/instalar. Para testar sua versão local, abra `about:debugging#/runtime/this-firefox`, carregue `browser_extension/manifest.json` e recarregue o YouTube. No Chrome/Edge/Brave, use o modo desenvolvedor e `Carregar sem compactação`, escolhendo `browser_extension`. Autorize o acesso a `http://127.0.0.1` se solicitado.
+
+**Limite:** regras de navegador mais ricas podem bloquear recursos publicitários específicos, mas anúncios first-party veiculados dentro do mesmo fluxo de vídeo do YouTube ainda podem escapar. O Qproxy não promete 100% de bloqueio. Não altera o acelerador de vídeo nem inspeciona HTTPS via MITM.
 
 ## YouTube
 
