@@ -47,6 +47,7 @@ class DashboardRulesTests(unittest.TestCase):
                         return json.load(response)
 
                 self.assertEqual(get("/api/rules?search=ads.vendor")["total"], 1)
+                self.assertEqual(get("/api/browser-rules"), {"version": 1, "rules": []})
                 with self.assertRaises(HTTPError) as context:
                     post("/api/blocklist", "promo.example.test", authorized=False)
                 self.assertEqual(context.exception.code, 403)
