@@ -182,9 +182,18 @@ class DashboardServer:
                     self.wfile.write(body)
                     return
                 if path == "/api/browser-rules":
-                    # Apenas regras públicas de bloqueio, sem histórico,
-                    # identificadores de usuários ou dados de navegação.
-                    self._json(200, dashboard.updater.browser_rules())
+                    # Dados públicos de filtragem. Alguns Firefox MV3 exigem
+                    # cabeçalho CORS mesmo com host_permissions. Não expor
+                    # histórico, token ou endpoints de escrita neste fluxo.
+                    body = json.dumps(dashboard.updater.browser_rules()).encode("utf-8")
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json; charset=utf-8")
+                    self.send_header("Content-Length", str(len(body)))
+                    self.send_header("Cache-Control", "no-store")
+                    self.send_header("Access-Control-Allow-Origin", "*")
+                    self.send_header("X-Content-Type-Options", "nosniff")
+                    self.end_headers()
+                    self.wfile.write(body)
                     return
                 if path == "/api/status":
                     self._json(200, {"stats": dashboard.stats.snapshot(), "rules": dashboard.rules.snapshot(), "updates": dashboard.updater.status()})
