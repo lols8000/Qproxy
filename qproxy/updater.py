@@ -8,6 +8,8 @@ from threading import Lock
 from urllib.request import Request, urlopen
 
 from .blocklist import count_domain_rules
+from .browser_filters import compile_youtube_rules
+import json
 from .config import RemoteListSource
 
 LOG = logging.getLogger("qproxy")
@@ -37,6 +39,7 @@ class BlocklistUpdater:
         self.timeout = timeout
         self._lock = Lock()
         self.last_results: list[UpdateResult] = []
+        self.browser_rules_path = self.cache_dir / "browser_rules.json"
 
     @staticmethod
     def source_path(cache_dir: str | Path, source: RemoteListSource) -> Path:
@@ -83,7 +86,43 @@ class BlocklistUpdater:
                     LOG.warning("Falha ao atualizar %s: %s%s", source.name, exc, " (cache preservado)" if cache_exists else "")
                 results.append(result)
             self.last_results = results
+            try:
+                self.build_browser_rules()
+            except Exception as exc:
+                LOG.warning("Falha ao preparar regras para navegador: %s", exc)
             return list(results)
+
+    def build_browser_rules(self) -> int:
+        # O navegador recebe somente regras derivadas das listas verificadas.
+        # Atualização atômica impede leitura de JSON truncado.
+        sources = [
+            self.source_path(self.cache_dir, source)
+            for source in self.sources
+            if source.name in {"EasyList", "EasyPrivacy"}
+        ]
+        if not any(path.is_file() for path in sources):
+            return 0
+        rules = compile_youtube_rules(sources)
+        if not rules:
+            return 0
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
+        temp = self.browser_rules_path.with_suffix(".json.tmp")
+        temp.write_text(
+            json.dumps({"version": 1, "rules": rules}, separators=(",", ":")),
+            encoding="utf-8",
+        )
+        temp.replace(self.browser_rules_path)
+        LOG.info("Compiladas %d regras de navegador do Qproxy", len(rules))
+        return len(rules)
+
+    def browser_rules(self) -> dict:
+        if not self.browser_rules_path.is_file():
+            return {"version": 1, "rules": []}
+        try:
+            payload = json.loads(self.browser_rules_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {"version": 1, "rules": []}
+        return payload if payload.get("version") == 1 and isinstance(payload.get("rules"), list) else {"version": 1, "rules": []}
 
     def status(self) -> list[dict]:
         with self._lock:
