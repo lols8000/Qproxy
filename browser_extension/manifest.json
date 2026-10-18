@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Qproxy YouTube Companion",
-  "version": "0.2.0",
-  "description": "Qproxy no navegador: bloqueio de URLs de anúncios por regras atualizadas, sem alterar a reprodução de vídeos.",
+  "version": "0.2.1",
+  "description": "Qproxy YouTube Companion: filtros nativos e diagnóstico visível no navegador, sem modificar a velocidade do vídeo.",
   "content_scripts": [
     {
       "matches": [
@@ -26,7 +26,9 @@
   },
   "permissions": [
     "declarativeNetRequest",
-    "alarms"
+    "alarms",
+    "storage",
+    "declarativeNetRequestFeedback"
   ],
   "declarative_net_request": {
     "rule_resources": [
@@ -48,5 +50,9 @@
   },
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'self'; connect-src 'self' http://127.0.0.1:8900"
+  },
+  "action": {
+    "default_title": "Qproxy · Verificar bloqueio",
+    "default_popup": "popup.html"
   }
 }
