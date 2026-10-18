@@ -134,5 +134,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   void syncQproxyRules().then(sendResponse);
   return true;
 });
-chrome.alarms.create(ALARM, {periodInMinutes: 15});
+// Tentar novamente quando o Qproxy termina o primeiro download após iniciar.
+chrome.alarms.create(ALARM, {periodInMinutes: 2});
 void syncQproxyRules();
