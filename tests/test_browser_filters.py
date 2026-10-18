@@ -19,6 +19,20 @@ class BrowserFiltersTests(unittest.TestCase):
         self.assertTrue(targeted)
         self.assertFalse(allow)
 
+    def test_domain_scope_with_pipes_is_not_mistaken_for_url_syntax(self):
+        parsed = _parse_rule(
+            "||ads.vendor.test^$domain=youtube.com|music.youtube.com,script"
+        )
+        self.assertIsNotNone(parsed)
+        condition, allow, targeted = parsed
+        self.assertEqual(condition["requestDomains"], ["ads.vendor.test"])
+        self.assertEqual(condition["resourceTypes"], ["script"])
+        self.assertTrue(targeted)
+        self.assertFalse(allow)
+        self.assertIsNone(
+            _parse_rule("||ads.vendor.test^$domain=youtube.com|other.com,script")
+        )
+
     def test_protects_youtube_video_and_images(self):
         for line in [
             "||youtube.com^", "||googlevideo.com^", "||ytimg.com^",
