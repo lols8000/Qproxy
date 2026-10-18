@@ -1,0 +1,25 @@
+<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Qproxy · Diagnóstico</title>
+<style>
+:root{color-scheme:dark}body{background:#101927;color:#edf4ff;font:13px/1.5 system-ui,Segoe UI,sans-serif;width:310px;margin:0;padding:16px}
+h1{font-size:17px;margin:0 0 6px}p{color:#adbed3;margin:4px 0 12px}
+.panel{border:1px solid #354761;border-radius:9px;padding:10px;margin:9px 0}
+.row{display:flex;justify-content:space-between;gap:8px;align-items:center}
+.label{color:#b9c7dc}.value{font-weight:700} .good{color:#45dfa0}.bad{color:#ff7f91}
+button{background:#3869df;color:white;border:0;border-radius:8px;padding:9px 11px;cursor:pointer}
+button:disabled{opacity:.65}a{color:#a9c4ff}#error{overflow-wrap:anywhere;color:#ff9eab}
+small{color:#bdc8d9}
+</style></head><body>
+<h1>Qproxy · Verificar bloqueio</h1>
+<p>A extensão carregada não significa que as regras estão ativas.</p>
+<div class="panel"><div class="row"><span class="label">Serviço Qproxy</span><span id="connection" class="value">Verificando...</span></div>
+<div class="row"><span class="label">Regras dinâmicas no Chrome</span><span id="dynamic" class="value">—</span></div>
+<div class="row"><span class="label">Lista estática habilitada</span><span id="static" class="value">—</span></div>
+<div class="row"><span class="label">Última sincronização</span><span id="updated" class="value">—</span></div></div>
+<div class="panel"><div class="row"><span class="label">Teste local do bloqueio</span><span id="test" class="value">—</span></div>
+<small>Teste com URL publicitária simulada; não é prova de bloqueio de pré-anúncios do YouTube.</small></div>
+<div class="panel"><div id="error"></div><div class="row"><button id="sync">Sincronizar agora</button><button id="refresh">Atualizar estado</button></div></div>
+<p>Mesmo com filtros ativos, anúncios internos do vídeo podem passar. O Qproxy não acelera nem avança o player.</p>
+<p><a href="http://127.0.0.1:8900/" target="_blank" rel="noopener noreferrer">Abrir central Qproxy</a></p>
+<script src="popup.js"></script></body></html>

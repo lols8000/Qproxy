@@ -22,12 +22,20 @@ class BrowserExtensionTests(unittest.TestCase):
         self.assertEqual(manifest["background"]["service_worker"], "background.js")
         self.assertEqual(manifest["background"]["scripts"], ["background.js"])
         self.assertTrue((EXT / "background.js").is_file())
+        self.assertEqual(manifest["action"]["default_popup"], "popup.html")
+        self.assertTrue((EXT / "popup.html").is_file())
+        self.assertTrue((EXT / "popup.js").is_file())
+        self.assertIn("storage", manifest["permissions"])
+        self.assertIn("declarativeNetRequestFeedback", manifest["permissions"])
 
     def test_browser_filters_stay_separate_from_media_playback(self):
         script = (EXT / "background.js").read_text(encoding="utf-8")
         self.assertIn("updateDynamicRules", script)
         self.assertIn("/api/browser-rules", script)
-        self.assertIn("periodInMinutes: 15", script)
+        self.assertIn("periodInMinutes: 2", script)
+        self.assertIn("getDynamicRules", script)
+        self.assertIn("qproxyStatus", script)
+        self.assertIn("QPROXY_SYNC_NOW", script)
         for forbidden in ("playbackRate", "currentTime", "video.pause(", "video.play("):
             self.assertNotIn(forbidden, script)
 
@@ -41,6 +49,14 @@ class BrowserExtensionTests(unittest.TestCase):
     def test_background_javascript_syntax(self):
         result = subprocess.run(
             ["node", "--check", str(EXT / "background.js")],
+            capture_output=True, text=True, timeout=10,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    @unittest.skipUnless(shutil.which("node"), "Node.js não instalado")
+    def test_popup_javascript_syntax(self):
+        result = subprocess.run(
+            ["node", "--check", str(EXT / "popup.js")],
             capture_output=True, text=True, timeout=10,
         )
         self.assertEqual(result.returncode, 0, result.stderr)

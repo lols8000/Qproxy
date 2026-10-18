@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from urllib.parse import urlparse
 
 SAFE_RESOURCES = ("script", "xmlhttprequest", "sub_frame", "ping")
 RESOURCE_MAPPING = {
@@ -57,10 +56,14 @@ def _parse_rule(raw: str) -> tuple[dict, bool, bool] | None:
     is_exception = raw.startswith("@@")
     if is_exception:
         raw = raw[2:]
-    if not raw.startswith("||") or "*" in raw or "?" in raw or "|" in raw[2:]:
+    if not raw.startswith("||"):
         return None
 
     pattern, separator, options_text = raw.partition("$")
+    # '|' em $domain=youtube.com|music.youtube.com é legítimo.
+    # Conferir metacaracteres somente no padrão da URL, não nas opções.
+    if "*" in pattern or "?" in pattern or "|" in pattern[2:]:
+        return None
     # Hosts with cosmetic/resource constraints must not be broadened.
     options = [p.strip().lower() for p in options_text.split(",")] if separator else []
     if any(not option for option in options):
@@ -72,8 +75,9 @@ def _parse_rule(raw: str) -> tuple[dict, bool, bool] | None:
     for option in options:
         if option.startswith("domain="):
             values = option[7:].split("|")
-            if "youtube.com" not in values or any(
-                v and not v.startswith("~") and v != "youtube.com" for v in values
+            allowed_scopes = {"youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com"}
+            if not any(v in allowed_scopes for v in values) or any(
+                v and not v.startswith("~") and v not in allowed_scopes for v in values
             ):
                 return None
             targeted = True

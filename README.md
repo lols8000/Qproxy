@@ -1,4 +1,4 @@
-# Qproxy V3.7
+# Qproxy V3.8
 
 Qproxy combina três camadas:
 
@@ -223,6 +223,22 @@ Fluxo: `python main.py` → Qproxy atualiza listas externas a cada 6 horas → c
 **Instalação:** este recurso só funciona se o próprio complemento estiver **realmente instalado e autorizado** no navegador. Em Firefox normal, instalação permanente ainda depende de XPI assinado pela Mozilla; empacotar XPI não equivale a assinar/instalar. Para testar sua versão local, abra `about:debugging#/runtime/this-firefox`, carregue `browser_extension/manifest.json` e recarregue o YouTube. No Chrome/Edge/Brave, use o modo desenvolvedor e `Carregar sem compactação`, escolhendo `browser_extension`. Autorize o acesso a `http://127.0.0.1` se solicitado.
 
 **Limite:** regras de navegador mais ricas podem bloquear recursos publicitários específicos, mas anúncios first-party veiculados dentro do mesmo fluxo de vídeo do YouTube ainda podem escapar. O Qproxy não promete 100% de bloqueio. Não altera o acelerador de vídeo nem inspeciona HTTPS via MITM.
+
+
+## Diagnóstico real no Chrome e Firefox — V3.8
+
+**Instalar o complemento não significa que as regras funcionem.** Para verificar:
+1. Atualize o código Qproxy, execute `python main.py` e deixe a atualização inicial das listas terminar.
+2. Abra `chrome://extensions` → Qproxy YouTube Companion → **Recarregar** (ou `about:debugging#/runtime/this-firefox` no Firefox).
+3. Clique no ícone **Qproxy** na barra do navegador. A nova janela de diagnóstico mostra conexão com Qproxy, número **real** de regras dinâmicas aceitas pelo navegador, ativação da lista estática, data de sincronização e erros.
+4. Se houver "Desconectado", confirme o painel `http://127.0.0.1:8900`. Se houver "0" regras dinâmicas, use **Sincronizar agora**; se permanecer zero, veja o erro e o estado de atualização das listas no painel.
+5. No Chrome em modo desenvolvedor, um teste local verifica se uma requisição publicitária simulada corresponderia a uma regra. Esse teste **não mede anúncios de vídeos reais**, somente o funcionamento do mecanismo DNR.
+
+O Qproxy agora guarda mensagens de falha em `chrome.storage.local`, reconfere as regras instaladas após a atualização e tenta sincronizar a cada **2 minutos**, inclusive quando o programa abre sem cache e termina o primeiro download depois da extensão.
+
+Corrigi também o compilador de regras ABP que descartava filtros quando opções válidas continham domínios separados por `|`, como `$domain=youtube.com|music.youtube.com`.
+
+**Limitação estrutural, mesmo após esta correção:** o Qproxy não é um bloqueador completo de anúncios first-party do player. Muitos pré-anúncios do YouTube podem continuar mesmo com centenas de regras DNR ativas. Regras de domínio e scriptless DNR não substituem scriptlets e processamento de respostas que bloqueadores maduros usam. Não é confiável bloquear o fluxo de vídeo ou alterar velocidade para simular remoção de anúncios. O objetivo desta atualização é diagnosticar o que funciona e corrigir a sincronização, não afirmar que todos os pré-anúncios foram eliminados.
 
 ## YouTube
 

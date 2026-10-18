@@ -79,3 +79,14 @@ Para anúncios pré-vídeo não puláveis, o complemento só pode tentar os cont
 O complemento inclui `background.js`, que sincroniza filtros nativos de requisição da central Qproxy. O painel expõe `/api/browser-rules` contendo regras específicas compiladas de EasyList/EasyPrivacy, com atualização automática a cada 15 minutos e persistência de filtros quando o proxy estiver temporariamente offline.
 
 Firefox: `about:debugging#/runtime/this-firefox` → recarregue o complemento temporário depois de atualizar os arquivos locais. Para instalação permanente em Firefox regular, o XPI precisa da assinatura Mozilla. A geração do pacote não é instalação.
+
+## Diagnóstico e sincronização — V3.8
+
+A extensão agora inclui `popup.html` e `popup.js`. Clique no ícone Qproxy no Chrome para visualizar:
+- Conexão com a central Qproxy (com a última falha, quando existir);
+- Total de regras dinâmicas que o navegador realmente aceitou;
+- Estado da lista estática de filtros;
+- Horário do último download de filtros bem-sucedido;
+- Teste hipotético da API DNR, quando disponível em extensão descompactada.
+
+A extensão tenta sincronizar com a central a cada 2 minutos e permite **Sincronizar agora** manualmente. O teste sintético não prova bloqueio dos anúncios first-party do YouTube. Para instalação permanente no Firefox, permanece necessária uma extensão assinada pela Mozilla.
