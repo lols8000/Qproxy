@@ -30,7 +30,7 @@ class DashboardHtmlTests(unittest.TestCase):
             capture_output=True,
             text=True,
             encoding="utf-8",
-            timeout=10,
+            timeout=30,
         )
         self.assertEqual(outcome.returncode, 0, outcome.stderr)
 

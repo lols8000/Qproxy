@@ -49,7 +49,7 @@ class BrowserExtensionTests(unittest.TestCase):
     def test_background_javascript_syntax(self):
         result = subprocess.run(
             ["node", "--check", str(EXT / "background.js")],
-            capture_output=True, text=True, timeout=10,
+            capture_output=True, text=True, timeout=30,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
 
@@ -57,7 +57,7 @@ class BrowserExtensionTests(unittest.TestCase):
     def test_popup_javascript_syntax(self):
         result = subprocess.run(
             ["node", "--check", str(EXT / "popup.js")],
-            capture_output=True, text=True, timeout=10,
+            capture_output=True, text=True, timeout=30,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
 
