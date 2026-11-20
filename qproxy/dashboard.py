@@ -83,13 +83,13 @@ function renderEngine(engine){
  const e=engine||{};
  banner.className='panel engine-banner '+(e.windivert_active?'packet':(e.dns_server_active?'dns':'proxy'));
  if(e.windivert_active){
-  el('engineTitle').innerHTML='<span class="ok">● MODO PACOTES WINDOWS ATIVO (WinDivert / WFP)</span>';
+  el('engineTitle').innerHTML='<span class="ok">&#9679; MODO PACOTES WINDOWS ATIVO (WinDivert / WFP)</span>';
   el('engineDetail').textContent='Bloqueando pacotes antes de chegarem aos apps do Windows com velocidade nativa de rede.';
  }else if(e.dns_server_active){
-  el('engineTitle').innerHTML='<span class="ok">● MODO DNS LOCAL ATIVO (127.0.0.1:'+(e.dns_port||53)+')</span>';
+  el('engineTitle').innerHTML='<span class="ok">&#9679; MODO DNS LOCAL ATIVO (127.0.0.1:'+(e.dns_port||53)+')</span>';
   el('engineDetail').textContent='Bloqueio DNS + CNAME + Cache em RAM ativo. Instale WinDivert (python main.py --install-windivert) para somar inspeção TLS SNI e QUIC/HTTP3.';
  }else{
-  el('engineTitle').innerHTML='<span class="warn">● MODO PROXY HTTP/HTTPS (sem driver de pacotes)</span>';
+  el('engineTitle').innerHTML='<span class="warn">&#9679; MODO PROXY HTTP/HTTPS (sem driver de pacotes)</span>';
   el('engineDetail').textContent=e.hint||'Execute scripts\\iniciar_qproxy_admin.bat (ou python main.py --elevate) para ativar o bloqueio direto nos pacotes do Windows.';
  }
  const layers=e.active_layers||[];
