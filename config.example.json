@@ -1,4 +1,5 @@
 {
+  "mode": "auto",
   "listen_host": "127.0.0.1",
   "listen_port": 8899,
   "blocklists": [
@@ -17,6 +18,7 @@
     "youtube-nocookie.com"
   ],
   "connect_timeout_seconds": 10,
+  "happy_eyeballs_delay_seconds": 0.25,
   "log_allowed": false,
   "dashboard_enabled": true,
   "dashboard_host": "127.0.0.1",
@@ -26,6 +28,35 @@
   "update_on_start": true,
   "update_interval_hours": 6,
   "remote_download_timeout_seconds": 20,
+  "packet_filter": {
+    "enabled": true,
+    "windivert_dir": "data/windivert",
+    "auto_download_windivert": false,
+    "filter_dns": true,
+    "filter_cname_cloaking": true,
+    "filter_tls_sni": true,
+    "filter_quic_sni": true,
+    "filter_http": true,
+    "signal_local_dns_filter": true,
+    "block_dot": false,
+    "dns_block_mode": "zero_ip",
+    "dns_cache_enabled": true,
+    "dns_cache_max_entries": 10000,
+    "dns_cache_min_ttl": 30,
+    "dns_cache_max_ttl": 3600,
+    "flush_windows_dns_on_start": true
+  },
+  "dns_server": {
+    "enabled": false,
+    "listen_host": "127.0.0.1",
+    "listen_port": 53,
+    "upstreams": [
+      "1.1.1.1",
+      "8.8.8.8",
+      "9.9.9.9"
+    ],
+    "upstream_timeout_seconds": 2.0
+  },
   "browser_companion": {
     "auto_detect": true,
     "auto_install": true,
@@ -42,11 +73,39 @@
   },
   "remote_blocklists": [
     {
+      "name": "HaGeZi Multi PRO",
+      "url": "https://cdn.jsdelivr.net/gh/hagezi/dns-blocklists@latest/adblock/pro.txt",
+      "category": "ad",
+      "filename": "hagezi-pro.txt",
+      "min_rules": 5000
+    },
+    {
+      "name": "AdGuard DNS Filter",
+      "url": "https://adguardteam.github.io/AdGuardSDNSFilter/Filters/filter.txt",
+      "category": "ad",
+      "filename": "adguard-dns.txt",
+      "min_rules": 2000
+    },
+    {
+      "name": "OISD Big",
+      "url": "https://big.oisd.nl/",
+      "category": "ad",
+      "filename": "oisd-big.txt",
+      "min_rules": 5000
+    },
+    {
       "name": "StevenBlack hosts",
       "url": "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts",
       "category": "ad",
       "filename": "stevenblack-hosts.txt",
       "min_rules": 2000
+    },
+    {
+      "name": "HaGeZi Windows Telemetry",
+      "url": "https://cdn.jsdelivr.net/gh/hagezi/dns-blocklists@latest/adblock/native.winoffice.txt",
+      "category": "tracker",
+      "filename": "hagezi-winoffice.txt",
+      "min_rules": 50
     },
     {
       "name": "EasyList",
@@ -61,6 +120,5 @@
       "filename": "easyprivacy.txt"
     }
   ],
-  "manual_blocklist_file": "data/manual_blocklist.txt",
-  "happy_eyeballs_delay_seconds": 0.25
+  "manual_blocklist_file": "data/manual_blocklist.txt"
 }

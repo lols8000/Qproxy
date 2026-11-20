@@ -10,3 +10,8 @@ data/stats.json
 data/stats.json.tmp
 data/remote/
 data/browser/
+data/windivert/
+data/windows_proxy_backup.json
+data/windows_dns_backup.json
+data/manual_blocklist.txt
+
