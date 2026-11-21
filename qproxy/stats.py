@@ -28,6 +28,12 @@ class StatsStore:
         self.connect_samples = 0
         self.total_connect_ms = 0.0
         self.slow_connects = 0
+        self.packets_inspected = 0
+        self.packets_blocked = 0
+        self.packets_passed = 0
+        self.dns_cache_hits = 0
+        self.dns_cache_misses = 0
+        self.blocked_by_protocol: Counter[str] = Counter()
         self.top_blocked: Counter[str] = Counter()
         self.recent: deque[dict[str, Any]] = deque(maxlen=recent_limit)
         self._dirty_events = 0
@@ -50,15 +56,29 @@ class StatsStore:
             self.connect_samples = int(data.get("connect_samples", 0))
             self.total_connect_ms = float(data.get("total_connect_ms", 0.0))
             self.slow_connects = int(data.get("slow_connects", 0))
+            self.packets_inspected = int(data.get("packets_inspected", 0))
+            self.packets_blocked = int(data.get("packets_blocked", 0))
+            self.packets_passed = int(data.get("packets_passed", 0))
+            self.dns_cache_hits = int(data.get("dns_cache_hits", 0))
+            self.dns_cache_misses = int(data.get("dns_cache_misses", 0))
+            self.blocked_by_protocol = Counter(data.get("blocked_by_protocol", {}))
             self.top_blocked = Counter(data.get("top_blocked", {}))
 
-    def record(self, host: str, action: str, protocol: str, category: str | None = None, rule: str | None = None) -> None:
+    def record(
+        self,
+        host: str,
+        action: str,
+        protocol: str,
+        category: str | None = None,
+        rule: str | None = None,
+    ) -> None:
         should_save = False
         with self._lock:
             self.total_requests += 1
             if action == "blocked":
                 self.blocked_requests += 1
                 self.top_blocked[host] += 1
+                self.blocked_by_protocol[protocol or "other"] += 1
                 if category == "tracker":
                     self.blocked_trackers += 1
                 else:
@@ -80,6 +100,25 @@ class StatsStore:
         if should_save:
             self.save()
 
+    def record_packet_inspected(self) -> None:
+        with self._lock:
+            self.packets_inspected += 1
+
+    def record_packet_blocked(self) -> None:
+        with self._lock:
+            self.packets_blocked += 1
+
+    def record_packet_passed(self) -> None:
+        with self._lock:
+            self.packets_passed += 1
+
+    def record_dns_cache(self, hit: bool) -> None:
+        with self._lock:
+            if hit:
+                self.dns_cache_hits += 1
+            else:
+                self.dns_cache_misses += 1
+
     def record_connect(self, duration_seconds: float) -> None:
         # Telemetria leve para verificar se os ajustes realmente reduziram
         # o tempo de conexão. Não registra URLs nem payloads.
@@ -97,6 +136,8 @@ class StatsStore:
 
     def snapshot(self) -> dict[str, Any]:
         with self._lock:
+            dns_total = self.dns_cache_hits + self.dns_cache_misses
+            dns_hit_rate = round((self.dns_cache_hits / dns_total) * 100.0, 1) if dns_total else 0.0
             return {
                 "started_at": self.started_at,
                 "total_requests": self.total_requests,
@@ -106,9 +147,20 @@ class StatsStore:
                 "blocked_trackers": self.blocked_trackers,
                 "bytes_relayed": self.bytes_relayed,
                 "connect_samples": self.connect_samples,
-                "average_connect_ms": round(self.total_connect_ms / self.connect_samples, 1) if self.connect_samples else 0.0,
+                "average_connect_ms": (
+                    round(self.total_connect_ms / self.connect_samples, 1)
+                    if self.connect_samples
+                    else 0.0
+                ),
                 "total_connect_ms": round(self.total_connect_ms, 1),
                 "slow_connects": self.slow_connects,
+                "packets_inspected": self.packets_inspected,
+                "packets_blocked": self.packets_blocked,
+                "packets_passed": self.packets_passed,
+                "dns_cache_hits": self.dns_cache_hits,
+                "dns_cache_misses": self.dns_cache_misses,
+                "dns_cache_hit_rate_pct": dns_hit_rate,
+                "blocked_by_protocol": dict(self.blocked_by_protocol),
                 "top_blocked": self.top_blocked.most_common(20),
                 "recent": list(self.recent),
             }
@@ -117,6 +169,7 @@ class StatsStore:
         snapshot = self.snapshot()
         with self._lock:
             snapshot["top_blocked"] = dict(self.top_blocked)
+            snapshot["blocked_by_protocol"] = dict(self.blocked_by_protocol)
         snapshot.pop("recent", None)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         tmp = self.path.with_suffix(self.path.suffix + ".tmp")

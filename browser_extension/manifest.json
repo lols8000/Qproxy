@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Qproxy YouTube Companion",
-  "version": "0.2.1",
-  "description": "Qproxy YouTube Companion: filtros nativos e diagnóstico visível no navegador, sem modificar a velocidade do vídeo.",
+  "version": "0.3.0",
+  "description": "Qproxy Companion: filtros nativos DNR para YouTube e anúncios de terceiros na web, com diagnóstico visível e sem modificar a velocidade do vídeo.",
   "content_scripts": [
     {
       "matches": [

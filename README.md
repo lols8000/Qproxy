@@ -1,27 +1,73 @@
-# Qproxy V3.8
+# Qproxy V4.0 — Bloqueio de Anúncios nos Pacotes do Windows
 
-Qproxy combina três camadas:
+O **Qproxy V4.0** foi redesenhado para filtrar propagandas, rastreadores e telemetria **diretamente na pilha de pacotes do Windows (kernel WFP via WinDivert)** antes de chegarem aos aplicativos, sem arrastar seu tráfego de navegação/vídeo por um proxy lento.
 
-1. **proxy local Python** para anúncios e trackers por domínio;
-2. **Qproxy YouTube Companion** para anúncios e elementos patrocinados dentro do YouTube;
-3. **integração automática com Chrome, Edge, Firefox e Brave** no Windows.
+## O que mudou na V4.0 (bloqueio efetivo + internet mais rápida)
 
-## Uso
+1. **Bloqueio direto nos pacotes do Windows (`WinDivert / WFP`) — sem proxy lento no caminho:**
+   - **Filtro seletivo no kernel:** apenas pacotes de controle mínimos entram no motor do Qproxy (DNS, `TLS ClientHello`, `QUIC Initial` e cabeçalhos `HTTP`). Todo o restante do tráfego permitido (vídeos 4K, downloads, jogos, chamadas) trafega **100% no kernel do Windows em velocidade nativa**, eliminando o gargalo do proxy HTTP/HTTPS tradicional.
+   - **DNS em pacotes (UDP 53 IPv4/IPv6) + Cache DNS em RAM (<1 ms):** domínios de anúncios são bloqueados antes mesmo de sair da placa de rede (resposta instantânea `0.0.0.0` / `::` / `NODATA` para registros `HTTPS`, sem travamentos), enquanto domínios permitidos repetidos são respondidos da memória em menos de 1 ms em vez de esperar 20–100 ms pelo DNS da operadora.
+   - **Proteção contra CNAME Cloaking:** analisa respostas DNS de entrada e bloqueia rastreadores disfarçados em subdomínios *first-party* (ex.: `metrics.site.com -> CNAME tracker.criteo.com`) antes de chegarem ao Windows.
+   - **TLS SNI (TCP 443/8443):** bloqueia conexões HTTPS publicitárias mesmo quando o navegador usa DoH ou quando o app ignora o proxy do Windows (Spotify, apps Electron, jogos, UWP, telemetria), injetando `TCP RST+ACK` instantâneo (<1 ms) e suportando pacotes ClientHello pós-quânticos truncados.
+   - **QUIC / HTTP/3 Initial SNI (UDP 443 — RFC 9000 v1 e RFC 9369 v2):** descriptografa o pacote Initial para extrair o SNI e descartar conexões QUIC de servidores de anúncios sem desabilitar o HTTP/3 em sites legítimos como o YouTube.
+   - **HTTP Host + Caminho (TCP 80/8080):** bloqueia hosts e caminhos publicitários (`/pagead/`, `/gampad/`, `/ads/ads.js`, etc.) devolvendo `HTTP 204 No Content` imediato.
+   - **Canário DoH (`use-application-dns.net`):** sinaliza gentilmente ao Firefox para usar o DNS local filtrado/cacheado.
+2. **Listas muito mais eficazes (e atualização paralela com `gzip` + `ETag`):**
+   - Além da lista base offline ampliada (~180 redes globais, brasileiras, popunders, apps e telemetria Windows), a V4.0 traz por padrão: **HaGeZi Multi PRO**, **AdGuard DNS Filter** (inclui filtro Português/BR), **OISD Big**, **HaGeZi Windows/Office Telemetry**, **StevenBlack hosts**, **EasyList** e **EasyPrivacy**.
+   - Motor de regras com cache O(1), suporte a wildcards (`*.dominio`), `$important`/`$all` e invalidação instantânea ao editar bloqueios/whitelist.
+3. **Fallback automático inteligente (`auto`):**
+   - **Modo Pacotes (`packet`)**: Windows + Administrador + WinDivert (máximo bloqueio em todos os apps + velocidade nativa).
+   - **Modo DNS Local (`dns`)**: Administrador sem WinDivert — sobe servidor DNS local assíncrono (`127.0.0.1:53` e `::1:53`) com corrida paralela entre `1.1.1.1`, `8.8.8.8` e `9.9.9.9`, cache LRU e bloqueio de CNAME cloaking, com backup/restauração automática via watchdog.
+   - **Modo Proxy Otimizado (`proxy`)**: sem Administrador ou fora do Windows — proxy HTTP/HTTPS agora com `TCP_NODELAY`, cache de IP/DNS, buffers de 128 KB e bloqueio por caminho HTTP.
+4. **Extensão de navegador expandida (YouTube + Web global):**
+   - Mantém o bloqueio seguro de anúncios no YouTube (sem mexer na velocidade ou posição do vídeo) e agora também sincroniza regras `declarativeNetRequest` globais de terceiros para outros sites.
 
-```powershell
-python main.py
+## Como usar no Windows (Modo Pacotes — Recomendado)
+
+### Opção 1 — 1 clique (mais fácil)
+Dê duplo clique em:
+
+```text
+scripts\iniciar_qproxy_admin.bat
 ```
 
-O `main.py`:
+Ele pede permissão de Administrador (UAC), baixa e verifica o **SHA-256** do driver oficial **WinDivert 2.2.2** automaticamente na primeira vez e inicia o Qproxy em **Modo Pacotes do Windows**.
 
-- recupera proxy antigo do Qproxy;
-- inicia o servidor;
-- só ativa o proxy do Windows depois que `127.0.0.1:8899` responde;
-- detecta Chrome, Edge, Firefox e Brave;
-- gera os pacotes da extensão;
-- aplica a política de instalação quando houver um ID/pacote assinado configurado;
-- abre o painel;
-- restaura o proxy anterior ao encerrar.
+### Opção 2 — PowerShell / Terminal
+
+```powershell
+# 1) Instalar o driver oficial WinDivert 2.2.2 (verificação SHA-256 automática):
+python main.py --install-windivert
+
+# 2) Iniciar como Administrador (modo pacotes automático):
+python main.py --elevate
+```
+
+Modos disponíveis via linha de comando:
+
+```powershell
+python main.py --mode auto    # Escolhe automaticamente: packet > dns > proxy
+python main.py --mode packet  # Força filtragem de pacotes (requer Admin + WinDivert)
+python main.py --mode dns     # Servidor DNS local (127.0.0.1:53) + cache + CNAME
+python main.py --mode proxy   # Proxy HTTP/HTTPS otimizado (não requer Admin)
+python main.py --mode hybrid  # Pacotes + Proxy juntos
+```
+
+> **Observação sobre antivírus / Windows Defender:** o driver assinado oficial do WinDivert (`basil00/WinDivert`) intercepta pacotes de rede e ocasionalmente pode gerar falso positivo no Windows Defender. Se o Defender impedir o carregamento do `WinDivert64.sys`, o Qproxy alterna automaticamente para o **Modo DNS Local** (sem depender do driver) ou você pode adicionar a pasta `data\windivert` às exclusões após conferir o hash SHA-256 (`63cb41763bb4b20f600b6de04e991a9c2be73279e317d4d82f237b150c5f3f15`).
+
+> **Recuperação rápida de rede:** se precisar restaurar proxy e DNS do Windows a qualquer momento, execute `python main.py --restore-network` ou `scripts\restore_windows_network.ps1`.
+
+---
+
+## Como o `main.py` opera
+
+- recupera qualquer configuração antiga de proxy ou DNS do Qproxy;
+- inicia o motor correspondente (`packet`, `dns`, `proxy` ou `hybrid`) e confirma o estado real via `/api/status` antes de alterar qualquer configuração do Windows;
+- no **Modo Pacotes**, não ativa o proxy do Windows (zero sobrecarga no tráfego permitido);
+- limpa o cache DNS do Windows (`ipconfig /flushdns`) para que bloqueios entrem em vigor na hora;
+- detecta Chrome, Edge, Firefox e Brave e gera os pacotes da extensão;
+- abre o painel em `http://127.0.0.1:8900`;
+- restaura tudo automaticamente ao encerrar (inclusive via watchdog se a janela for fechada).
 
 ## Navegadores suportados
 

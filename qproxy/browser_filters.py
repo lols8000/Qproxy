@@ -1,13 +1,16 @@
 """Compila regras de rede verificáveis para o complemento Qproxy.
 
 Regras ABP que exigem scriptlets, inspeção TLS, cosméticos e recursos de
-imagem/vídeo são ignoradas. O escopo é a página do YouTube, e a decisão
-é aplicada no navegador por declarativeNetRequest.
+imagem/vídeo são ignoradas. Gera tanto regras focadas no YouTube (IDs 10001..10800)
+quanto regras globais de terceiros para anúncios na web (IDs 20001..22000),
+aplicadas nativamente pelo navegador via declarativeNetRequest.
 """
 from __future__ import annotations
 
 import json
 from pathlib import Path
+
+from .blocklist import _domain_from_rule
 
 SAFE_RESOURCES = ("script", "xmlhttprequest", "sub_frame", "ping")
 RESOURCE_MAPPING = {
@@ -28,6 +31,8 @@ PROTECTED_DOMAINS = (
 # First-party advertising endpoints, not the player/video delivery endpoints.
 SAFE_FIRST_PARTY_PATHS = ("/pagead/", "/api/stats/ads")
 LIMIT = 800
+WEB_RULE_FIRST = 20001
+WEB_LIMIT = 2000
 
 
 def _valid_host(value: str) -> bool:
@@ -36,7 +41,9 @@ def _valid_host(value: str) -> bool:
         2 <= len(parts) <= 30
         and len(value) <= 253
         and all(
-            label and len(label) <= 63 and not label.startswith("-")
+            label
+            and len(label) <= 63
+            and not label.startswith("-")
             and not label.endswith("-")
             and all(c.isascii() and (c.isalnum() or c == "-") for c in label)
             for label in parts
@@ -75,7 +82,12 @@ def _parse_rule(raw: str) -> tuple[dict, bool, bool] | None:
     for option in options:
         if option.startswith("domain="):
             values = option[7:].split("|")
-            allowed_scopes = {"youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com"}
+            allowed_scopes = {
+                "youtube.com",
+                "www.youtube.com",
+                "m.youtube.com",
+                "music.youtube.com",
+            }
             if not any(v in allowed_scopes for v in values) or any(
                 v and not v.startswith("~") and v not in allowed_scopes for v in values
             ):
@@ -162,10 +174,54 @@ def compile_youtube_rules(sources: list[Path], limit: int = LIMIT) -> list[dict]
     for condition, is_exception, _ in [*targeted, *generic]:
         if len(result) >= limit:
             break
-        result.append({
-            "id": 10001 + len(result),
-            "priority": 3 if is_exception else 1,
-            "action": {"type": "allow" if is_exception else "block"},
-            "condition": condition,
-        })
+        result.append(
+            {
+                "id": 10001 + len(result),
+                "priority": 3 if is_exception else 1,
+                "action": {"type": "allow" if is_exception else "block"},
+                "condition": condition,
+            }
+        )
     return result
+
+
+def compile_web_rules(sources: list[Path], limit: int = WEB_LIMIT) -> list[dict]:
+    """Compila regras globais de terceiros para bloquear scripts/frames/XHR de anúncios na web."""
+    if not 1 <= limit <= 5000:
+        raise ValueError("invalid web rule limit")
+    allowed_hosts: set[str] = set()
+    blocked_hosts: list[str] = []
+    seen: set[str] = set()
+
+    for source in sources:
+        if not source.is_file():
+            continue
+        for raw in source.read_text(encoding="utf-8", errors="ignore").splitlines():
+            domain, is_allow = _domain_from_rule(raw)
+            if not domain or not _valid_host(domain) or _protected(domain):
+                continue
+            if is_allow:
+                allowed_hosts.add(domain)
+            elif domain not in seen:
+                seen.add(domain)
+                blocked_hosts.append(domain)
+
+    rules: list[dict] = []
+    for host in blocked_hosts:
+        if len(rules) >= limit:
+            break
+        if host in allowed_hosts:
+            continue
+        rules.append(
+            {
+                "id": WEB_RULE_FIRST + len(rules),
+                "priority": 1,
+                "action": {"type": "block"},
+                "condition": {
+                    "requestDomains": [host],
+                    "domainType": "thirdParty",
+                    "resourceTypes": list(SAFE_RESOURCES),
+                },
+            }
+        )
+    return rules

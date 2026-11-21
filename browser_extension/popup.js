@@ -8,6 +8,10 @@ function displayDate(iso) {
   return Number.isNaN(date.getTime()) ? "Data inválida" : date.toLocaleString("pt-BR");
 }
 
+function isQproxyRuleId(id) {
+  return (id >= 10001 && id <= 10800) || (id >= 20001 && id <= 22000);
+}
+
 async function refresh() {
   const stored = await chrome.storage.local.get("qproxyStatus");
   const status = stored.qproxyStatus || {};
@@ -20,7 +24,7 @@ async function refresh() {
     const [dynamic, enabled] = await Promise.all([
       dnr.getDynamicRules(), dnr.getEnabledRulesets()
     ]);
-    const number = dynamic.filter(rule => rule.id >= 10001 && rule.id <= 10800).length;
+    const number = dynamic.filter(rule => isQproxyRuleId(rule.id)).length;
     el("dynamic").textContent = String(number);
     el("dynamic").className = "value " + (number ? "good" : "bad");
     const active = enabled.includes("youtube_network_ads");

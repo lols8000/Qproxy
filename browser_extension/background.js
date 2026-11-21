@@ -1,10 +1,13 @@
 /* Qproxy browser filter + observable synchronization state.
-   Does not touch YouTube video playback or collect visited URLs. */
+   Supports YouTube-scoped rules (10001..10800) and safe third-party web rules
+   (20001..22000). Does not touch YouTube video playback or collect visited URLs. */
 "use strict";
 
 const RULES_URL = "http://127.0.0.1:8900/api/browser-rules";
 const RULE_FIRST = 10001;
 const RULE_LAST = 10800;
+const WEB_RULE_FIRST = 20001;
+const WEB_RULE_LAST = 22000;
 const TYPES = new Set(["script", "xmlhttprequest", "sub_frame", "ping"]);
 const PROTECTED = ["youtube.com", "googlevideo.com", "ytimg.com", "youtubei.googleapis.com"];
 const ALARM = "qproxy-rule-refresh";
@@ -35,6 +38,22 @@ function validQproxyRule(rule) {
       !c.urlFilter.startsWith(start + "api/stats/ads");
   })) return false;
   return Boolean(c.requestDomains?.length || c.urlFilter);
+}
+
+function validWebRule(rule) {
+  if (!rule || !Number.isInteger(rule.id) || rule.id < WEB_RULE_FIRST || rule.id > WEB_RULE_LAST ||
+      rule.action?.type !== "block") return false;
+  const c = rule.condition;
+  if (!c || c.domainType !== "thirdParty") return false;
+  if (!Array.isArray(c.resourceTypes) || c.resourceTypes.length === 0 ||
+      c.resourceTypes.some(type => !TYPES.has(type))) return false;
+  if (!Array.isArray(c.requestDomains) || c.requestDomains.length !== 1) return false;
+  if (c.requestDomains.some(protectedHost)) return false;
+  return true;
+}
+
+function isOwnedRuleId(id) {
+  return (id >= RULE_FIRST && id <= RULE_LAST) || (id >= WEB_RULE_FIRST && id <= WEB_RULE_LAST);
 }
 
 function fingerprint(text) {
@@ -77,26 +96,36 @@ async function performSync() {
       throw Error("Nenhuma regra de navegador gerada. Atualize as listas no painel.");
     }
 
+    const webRules = Array.isArray(payload.web_rules) ? payload.web_rules.slice(0, 2000) : [];
     const ids = new Set();
+    const combined = [];
+
     for (const rule of payload.rules) {
       if (!validQproxyRule(rule) || ids.has(rule.id)) throw Error("Lista contém regra duplicada ou insegura");
       ids.add(rule.id);
+      combined.push(rule);
     }
-    const signature = fingerprint(JSON.stringify(payload.rules));
+    for (const rule of webRules) {
+      if (!validWebRule(rule) || ids.has(rule.id)) continue;
+      ids.add(rule.id);
+      combined.push(rule);
+    }
+
+    const signature = fingerprint(JSON.stringify(combined));
     const loaded = await chrome.declarativeNetRequest.getDynamicRules();
-    const owned = loaded.filter(rule => rule.id >= RULE_FIRST && rule.id <= RULE_LAST);
+    const owned = loaded.filter(rule => isOwnedRuleId(rule.id));
     const previous = (await chrome.storage.local.get("qproxyStatus")).qproxyStatus || {};
-    if (previous.signature !== signature || owned.length !== payload.rules.length) {
+    if (previous.signature !== signature || owned.length !== combined.length) {
       await chrome.declarativeNetRequest.updateDynamicRules({
         removeRuleIds: owned.map(rule => rule.id),
-        addRules: payload.rules
+        addRules: combined
       });
     }
     // Confirm what the browser actually accepted, not just downloaded.
     const verified = await chrome.declarativeNetRequest.getDynamicRules();
-    const count = verified.filter(rule => rule.id >= RULE_FIRST && rule.id <= RULE_LAST).length;
-    if (count !== payload.rules.length) {
-      throw Error("Navegador aceitou apenas " + count + " de " + payload.rules.length + " regras");
+    const count = verified.filter(rule => isOwnedRuleId(rule.id)).length;
+    if (count !== combined.length) {
+      throw Error("Navegador aceitou apenas " + count + " de " + combined.length + " regras");
     }
     await saveStatus({
       connected: true,

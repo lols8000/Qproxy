@@ -13,10 +13,22 @@ import webbrowser
 
 from qproxy.browser_setup import print_browser_setup, setup_browser_companion
 from qproxy.config import Config
+from qproxy.windivert_setup import download_and_install_windivert, find_windivert_dll
+from qproxy.windows_net import (
+    capture_windows_dns,
+    flush_windows_dns_cache,
+    is_admin,
+    relaunch_as_admin,
+    restore_dns_backup_if_present,
+    restore_windows_dns,
+    set_windows_dns_local,
+    write_dns_backup,
+)
 
 ROOT = Path(__file__).resolve().parent
 DATA_DIR = ROOT / "data"
 BACKUP_FILE = DATA_DIR / "windows_proxy_backup.json"
+DNS_BACKUP_FILE = DATA_DIR / "windows_dns_backup.json"
 
 PROXY_HOST = "127.0.0.1"
 PROXY_PORT = 8899
@@ -135,11 +147,16 @@ def windows_proxy_points_to_qproxy() -> bool:
 def recover_stale_proxy() -> bool:
     if not IS_WINDOWS:
         return False
+    changed = False
+    if restore_dns_backup_if_present(DNS_BACKUP_FILE):
+        print("[Qproxy] Configuração anterior de DNS do Windows restaurada.")
+        changed = True
+
     if port_open(PROXY_HOST, PROXY_PORT):
-        return False
+        return changed
 
     if restore_backup_if_present():
-        print("[Qproxy] Configuração anterior do Windows restaurada.")
+        print("[Qproxy] Configuração anterior de proxy do Windows restaurada.")
         return True
 
     if windows_proxy_points_to_qproxy():
@@ -148,10 +165,10 @@ def recover_stale_proxy() -> bool:
         print("[Qproxy] Proxy antigo do Qproxy estava ativo sem servidor. Foi desativado.")
         return True
 
-    return False
+    return changed
 
 
-def enable_windows_proxy(snapshot: dict) -> None:
+def enable_windows_proxy(snapshot: dict, host: str = PROXY_HOST, port: int = PROXY_PORT) -> None:
     old_override = ""
     item = snapshot.get("ProxyOverride", {})
     if item.get("exists") and item.get("value"):
@@ -164,7 +181,7 @@ def enable_windows_proxy(snapshot: dict) -> None:
         if part.lower() not in {value.lower() for value in merged}:
             merged.append(part)
 
-    _set_registry_value("ProxyServer", f"{PROXY_HOST}:{PROXY_PORT}", winreg.REG_SZ)
+    _set_registry_value("ProxyServer", f"{host}:{port}", winreg.REG_SZ)
     _set_registry_value("ProxyOverride", ";".join(merged), winreg.REG_SZ)
     _set_registry_value("ProxyEnable", 1, winreg.REG_DWORD)
     notify_windows_proxy_changed()
@@ -220,6 +237,11 @@ def watchdog_mode(parent_pid: int, qproxy_pid: int) -> int:
         pass
 
     try:
+        restore_dns_backup_if_present(DNS_BACKUP_FILE)
+    except Exception:
+        pass
+
+    try:
         _terminate_pid_windows(qproxy_pid)
     except Exception:
         pass
@@ -252,7 +274,44 @@ def start_watchdog(qproxy_pid: int) -> None:
     )
 
 
-def run(config_path: Path, open_browser: bool = True) -> int:
+def _choose_windows_mode(config: Config, requested_mode: str | None) -> str:
+    mode = (requested_mode or config.mode or "auto").strip().lower()
+    windivert_dir = (ROOT / config.packet_filter.windivert_dir).resolve()
+    has_windivert = find_windivert_dll(windivert_dir, ROOT) is not None
+    admin = is_admin()
+
+    if mode == "auto":
+        if admin and config.packet_filter.enabled:
+            return "packet" if has_windivert else "dns"
+        return "proxy"
+    if mode == "packet" and (not admin or not has_windivert):
+        return "dns" if admin else "proxy"
+    return mode
+
+
+def _wait_for_engine_status(
+    dash_host: str, dash_port: int, process: subprocess.Popen, timeout: float = 12.0
+) -> dict | None:
+    from urllib.request import urlopen
+
+    deadline = time.monotonic() + timeout
+    url = f"http://{dash_host}:{dash_port}/api/status"
+    while time.monotonic() < deadline:
+        if process.poll() is not None:
+            return None
+        try:
+            with urlopen(url, timeout=1.0) as resp:
+                data = json.load(resp)
+            engine = data.get("engine") if isinstance(data, dict) else None
+            if isinstance(engine, dict) and engine.get("ready"):
+                return engine
+        except Exception:
+            pass
+        time.sleep(0.15)
+    return None
+
+
+def run(config_path: Path, open_browser: bool = True, requested_mode: str | None = None) -> int:
     if not IS_WINDOWS:
         print("Este inicializador automático é voltado ao Windows.")
         print(f"Use: {sys.executable} -m qproxy --config {config_path}")
@@ -261,9 +320,14 @@ def run(config_path: Path, open_browser: bool = True) -> int:
     recover_stale_proxy()
 
     config = Config.load(config_path if config_path.exists() else None)
+    effective_mode = _choose_windows_mode(config, requested_mode)
+    proxy_host = config.listen_host or PROXY_HOST
+    proxy_port = int(config.listen_port or PROXY_PORT)
+    dash_host = config.dashboard_host or PROXY_HOST
+    dash_port = int(config.dashboard_port or DASHBOARD_PORT)
 
-    if port_open(PROXY_HOST, PROXY_PORT):
-        print(f"ERRO: a porta {PROXY_PORT} já está em uso. O Qproxy não foi iniciado.")
+    if effective_mode in ("proxy", "hybrid") and port_open(proxy_host, proxy_port):
+        print(f"ERRO: a porta {proxy_port} já está em uso. O Qproxy não foi iniciado.")
         print("Feche a instância anterior e tente novamente.")
         return 1
 
@@ -273,26 +337,49 @@ def run(config_path: Path, open_browser: bool = True) -> int:
         "qproxy",
         "--config",
         str(config_path),
+        "--mode",
+        effective_mode,
     ]
 
-    print("Qproxy iniciando...")
+    print(f"Qproxy V4.0 iniciando em modo: {effective_mode.upper()}...")
     process = subprocess.Popen(command, cwd=str(ROOT))
-    snapshot: dict | None = None
+    proxy_snapshot: dict | None = None
+    dns_snapshot: list[dict] | None = None
 
     try:
-        if not wait_for_port(PROXY_HOST, PROXY_PORT, process, timeout=15):
-            code = process.poll()
+        engine = _wait_for_engine_status(dash_host, dash_port, process, timeout=15)
+        dashboard_ready = engine is not None or wait_for_port(dash_host, dash_port, process, timeout=2)
+        if not dashboard_ready and process.poll() is not None:
             raise RuntimeError(
-                f"O servidor não abriu a porta {PROXY_PORT}. "
-                f"Processo encerrou com código {code}."
+                f"Qproxy encerrou durante a inicialização (código {process.returncode})."
             )
 
-        snapshot = capture_windows_proxy()
-        write_backup(snapshot)
-        enable_windows_proxy(snapshot)
-        start_watchdog(process.pid)
+        live_windivert = bool((engine or {}).get("windivert_active"))
+        live_dns = bool((engine or {}).get("dns_server_active"))
+        live_dns_port = int((engine or {}).get("dns_port") or config.dns_server.listen_port)
+        live_proxy = bool((engine or {}).get("proxy_active"))
+        actual_mode = str((engine or {}).get("mode") or effective_mode)
 
-        dashboard_ready = wait_for_port(PROXY_HOST, DASHBOARD_PORT, process, timeout=5)
+        # Só altera o proxy do Windows se o proxy HTTP/HTTPS realmente abriu a porta.
+        if live_proxy and (actual_mode in ("proxy", "hybrid") or not (live_windivert or live_dns)):
+            if not wait_for_port(proxy_host, proxy_port, process, timeout=10):
+                code = process.poll()
+                raise RuntimeError(
+                    f"O servidor não abriu a porta {proxy_port}. Processo encerrou com código {code}."
+                )
+            proxy_snapshot = capture_windows_proxy()
+            write_backup(proxy_snapshot)
+            enable_windows_proxy(proxy_snapshot, proxy_host, proxy_port)
+
+        # Só aponta DNS do Windows para 127.0.0.1 se o servidor DNS local realmente estiver na porta 53.
+        if live_dns and not live_windivert and live_dns_port == 53:
+            dns_snapshot = capture_windows_dns()
+            if dns_snapshot:
+                write_dns_backup(DNS_BACKUP_FILE, dns_snapshot)
+                set_windows_dns_local(dns_snapshot, config.dns_server.listen_host or "127.0.0.1")
+
+        start_watchdog(process.pid)
+        flush_windows_dns_cache()
 
         if config.browser_companion.auto_detect:
             try:
@@ -305,18 +392,33 @@ def run(config_path: Path, open_browser: bool = True) -> int:
                 print(f"[Qproxy] Integração com navegadores não concluída: {exc}")
 
         print()
-        print("=" * 56)
-        print(" QPROXY ATIVO")
-        print(f" Proxy:   {PROXY_HOST}:{PROXY_PORT}")
-        print(f" Painel:  http://{PROXY_HOST}:{DASHBOARD_PORT}")
-        print(" Feche esta janela ou pressione Ctrl+C para encerrar.")
-        print(" Ao encerrar, o proxy anterior do Windows será restaurado.")
-        print("=" * 56)
+        print("=" * 64)
+        if live_windivert and not live_proxy:
+            print(" QPROXY V4.0 ATIVO · MODO PACOTES WINDOWS (WinDivert / WFP)")
+            print(" Camadas: DNS + Cache <1ms + CNAME + TLS SNI + QUIC/HTTP3 + HTTP")
+            print(" Velocidade: tráfego permitido trafega direto no kernel do Windows")
+        elif live_windivert and live_proxy:
+            print(" QPROXY V4.0 ATIVO · MODO HÍBRIDO (Pacotes + Proxy)")
+            print(f" Proxy:   {proxy_host}:{proxy_port}")
+        elif live_dns:
+            print(f" QPROXY V4.0 ATIVO · MODO DNS LOCAL (127.0.0.1:{live_dns_port})")
+            print(" Camadas: DNS + Cache <1ms + CNAME Cloaking (sem lentidão de proxy)")
+            print(" Dica: rode `python main.py --install-windivert` para ativar também")
+            print("       inspeção de pacotes TLS SNI e QUIC/HTTP3.")
+        else:
+            print(" QPROXY V4.0 ATIVO · MODO PROXY HTTP/HTTPS OTIMIZADO")
+            print(f" Proxy:   {proxy_host}:{proxy_port}")
+            print(" Dica: para bloquear direto nos pacotes do Windows (todos os apps +")
+            print("       internet mais rápida), execute:")
+            print("       scripts\\iniciar_qproxy_admin.bat  ou  python main.py --elevate")
+        print(f" Painel:  http://{dash_host}:{dash_port}")
+        print(" Feche esta janela ou pressione Ctrl+C para encerrar com segurança.")
+        print("=" * 64)
         print()
 
         if open_browser and dashboard_ready:
             try:
-                webbrowser.open(f"http://{PROXY_HOST}:{DASHBOARD_PORT}")
+                webbrowser.open(f"http://{dash_host}:{dash_port}")
             except Exception:
                 pass
 
@@ -334,31 +436,75 @@ def run(config_path: Path, open_browser: bool = True) -> int:
         return 1
     finally:
         terminate_process(process)
-        if snapshot is not None:
+        if proxy_snapshot is not None:
             try:
-                restore_windows_proxy(snapshot)
+                restore_windows_proxy(proxy_snapshot)
             finally:
                 try:
                     BACKUP_FILE.unlink()
                 except FileNotFoundError:
                     pass
-            print("Proxy do Windows restaurado. Sua conexão ficou em modo normal.")
+            print("Proxy do Windows restaurado.")
+        if dns_snapshot is not None:
+            try:
+                restore_windows_dns(dns_snapshot)
+            finally:
+                try:
+                    DNS_BACKUP_FILE.unlink()
+                except FileNotFoundError:
+                    pass
+            print("DNS dos adaptadores do Windows restaurado.")
+        flush_windows_dns_cache()
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Qproxy - inicializador simples para Windows")
+    parser = argparse.ArgumentParser(
+        description="Qproxy V4.0 - bloqueador de anúncios em pacotes do Windows"
+    )
     parser.add_argument(
         "--config",
         default=str(ROOT / "config.example.json"),
         help="arquivo JSON de configuração do Qproxy",
     )
+    parser.add_argument(
+        "--mode",
+        choices=("auto", "packet", "dns", "proxy", "hybrid"),
+        help="modo de execução (auto, packet, dns, proxy, hybrid)",
+    )
     parser.add_argument("--no-browser", action="store_true", help="não abre o painel automaticamente")
-    parser.add_argument("--restore-proxy", action="store_true", help="restaura/desativa um proxy Qproxy travado")
-    parser.add_argument("--watchdog", nargs=2, metavar=("PARENT_PID", "QPROXY_PID"), help=argparse.SUPPRESS)
+    parser.add_argument(
+        "--elevate",
+        action="store_true",
+        help="reabre o Qproxy como Administrador (UAC) para habilitar bloqueio nos pacotes",
+    )
+    parser.add_argument(
+        "--install-windivert",
+        action="store_true",
+        help="baixa e verifica (SHA-256) o driver oficial WinDivert 2.2.2 em data/windivert",
+    )
+    parser.add_argument(
+        "--restore-proxy",
+        "--restore-network",
+        dest="restore_proxy",
+        action="store_true",
+        help="restaura/desativa proxy e DNS do Qproxy no Windows",
+    )
+    parser.add_argument(
+        "--watchdog", nargs=2, metavar=("PARENT_PID", "QPROXY_PID"), help=argparse.SUPPRESS
+    )
     args = parser.parse_args()
 
     if args.watchdog:
         return watchdog_mode(int(args.watchdog[0]), int(args.watchdog[1]))
+
+    if args.install_windivert:
+        cfg_path = Path(args.config).resolve()
+        cfg = Config.load(cfg_path if cfg_path.exists() else None)
+        target = (ROOT / cfg.packet_filter.windivert_dir).resolve()
+        print("Baixando e verificando SHA-256 do WinDivert 2.2.2 oficial...")
+        dll = download_and_install_windivert(target)
+        print(f"WinDivert instalado com sucesso em: {dll.parent}")
+        return 0
 
     if args.restore_proxy:
         if not IS_WINDOWS:
@@ -368,10 +514,25 @@ def main() -> int:
             _set_registry_value("ProxyEnable", 0, winreg.REG_DWORD)
             notify_windows_proxy_changed()
             changed = True
-        print("Proxy restaurado." if changed else "Nenhum proxy travado do Qproxy foi encontrado.")
+        flush_windows_dns_cache()
+        print(
+            "Rede do Windows restaurada."
+            if changed
+            else "Nenhuma configuração travada do Qproxy foi encontrada."
+        )
         return 0
 
-    return run(Path(args.config).resolve(), open_browser=not args.no_browser)
+    if args.elevate and IS_WINDOWS and not is_admin():
+        forwarded = [arg for arg in sys.argv[1:] if arg != "--elevate"]
+        if relaunch_as_admin(Path(__file__).resolve(), forwarded):
+            return 0
+        print("Elevação UAC cancelada ou recusada; iniciando sem Administrador.")
+
+    return run(
+        Path(args.config).resolve(),
+        open_browser=not args.no_browser,
+        requested_mode=args.mode,
+    )
 
 
 if __name__ == "__main__":

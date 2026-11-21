@@ -2,14 +2,27 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import socket
 from urllib.parse import urlsplit
 
 from .blocklist import RuleManager, normalize_host
 from .config import Config
+from .dns_cache import HostAddressCache
 from .stats import StatsStore
 
 LOG = logging.getLogger("qproxy")
 MAX_HEADER = 64 * 1024
+RELAY_CHUNK_SIZE = 128 * 1024
+
+
+def _enable_tcp_nodelay(writer: asyncio.StreamWriter) -> None:
+    """Desativa o algoritmo de Nagle para eliminar atrasos de 40-200 ms em pacotes pequenos."""
+    sock = writer.get_extra_info("socket")
+    if sock is not None:
+        try:
+            sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        except OSError:
+            pass
 
 
 def _parse_host_port(value: str, default_port: int) -> tuple[str, int]:
@@ -19,7 +32,7 @@ def _parse_host_port(value: str, default_port: int) -> tuple[str, int]:
         if end == -1:
             raise ValueError("IPv6 inválido")
         host = value[1:end]
-        rest = value[end + 1:]
+        rest = value[end + 1 :]
         port = int(rest[1:]) if rest.startswith(":") else default_port
         return host, port
     if value.count(":") == 1:
@@ -50,7 +63,9 @@ def _header(headers: list[tuple[str, str]], name: str) -> str | None:
     return None
 
 
-def _rewrite_http_request(method: str, target: str, version: str, headers: list[tuple[str, str]]) -> tuple[str, int, bytes]:
+def _rewrite_http_request(
+    method: str, target: str, version: str, headers: list[tuple[str, str]]
+) -> tuple[str, int, bytes]:
     parsed = urlsplit(target) if "://" in target else None
     host_header = _header(headers, "Host")
 
@@ -84,10 +99,17 @@ def _rewrite_http_request(method: str, target: str, version: str, headers: list[
 
 
 class ProxyServer:
-    def __init__(self, config: Config, rules: RuleManager, stats: StatsStore):
+    def __init__(
+        self,
+        config: Config,
+        rules: RuleManager,
+        stats: StatsStore,
+        host_cache: HostAddressCache | None = None,
+    ):
         self.config = config
         self.rules = rules
         self.stats = stats
+        self.host_cache = host_cache or HostAddressCache()
 
     async def serve(self) -> None:
         server = await asyncio.start_server(
@@ -95,13 +117,17 @@ class ProxyServer:
             self.config.listen_host,
             self.config.listen_port,
             limit=MAX_HEADER + 8192,
+            backlog=256,
         )
         sockets = ", ".join(str(sock.getsockname()) for sock in server.sockets or [])
-        LOG.info("Qproxy ouvindo em %s", sockets)
+        LOG.info("Qproxy proxy HTTP/HTTPS ouvindo em %s", sockets)
         async with server:
             await server.serve_forever()
 
-    async def handle_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+    async def handle_client(
+        self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+    ) -> None:
+        _enable_tcp_nodelay(writer)
         peer = writer.get_extra_info("peername")
         try:
             raw = await asyncio.wait_for(reader.readuntil(b"\r\n\r\n"), timeout=15)
@@ -128,20 +154,44 @@ class ProxyServer:
                 pass
 
     async def _open_upstream(self, host: str, port: int):
-        # Happy Eyeballs: evita aguardar um IPv6 lento antes de tentar
-        # IPv4 em hosts dual-stack. Não altera nem inspeciona TLS.
+        # Happy Eyeballs + TCP_NODELAY: evita aguardar IPv6 lento e elimina
+        # atraso de Nagle. Não altera nem inspeciona TLS.
         started = asyncio.get_running_loop().time()
         delay = max(0.05, min(float(self.config.happy_eyeballs_delay_seconds), 2.0))
+        connect_target = host
+        cached = self.host_cache.get(host, port)
+        if cached:
+            # Usa primeiro IP em cache para pular resolução DNS repetida, mantendo
+            # fallback automático para hostname em caso de falha.
+            try:
+                streams = await asyncio.wait_for(
+                    asyncio.open_connection(
+                        cached[0], port, happy_eyeballs_delay=delay, interleave=1
+                    ),
+                    timeout=min(self.config.connect_timeout_seconds, 4.0),
+                )
+                _enable_tcp_nodelay(streams[1])
+                self.stats.record_connect(asyncio.get_running_loop().time() - started)
+                return streams
+            except OSError:
+                pass
+
         streams = await asyncio.wait_for(
             asyncio.open_connection(
-                host, port, happy_eyeballs_delay=delay, interleave=1
+                connect_target, port, happy_eyeballs_delay=delay, interleave=1
             ),
             timeout=self.config.connect_timeout_seconds,
         )
+        _enable_tcp_nodelay(streams[1])
+        peer = streams[1].get_extra_info("peername")
+        if peer and isinstance(peer, tuple) and peer[0] and peer[0] != host:
+            self.host_cache.put(host, port, [str(peer[0])])
         self.stats.record_connect(asyncio.get_running_loop().time() - started)
         return streams
 
-    async def _handle_connect(self, target: str, client_r: asyncio.StreamReader, client_w: asyncio.StreamWriter) -> None:
+    async def _handle_connect(
+        self, target: str, client_r: asyncio.StreamReader, client_w: asyncio.StreamWriter
+    ) -> None:
         host, port = _parse_host_port(target, 443)
         host = normalize_host(host)
         decision = self.rules.evaluate(host)
@@ -155,14 +205,24 @@ class ProxyServer:
         if self.config.log_allowed:
             LOG.info("ALLOW HTTPS %s:%s", host, port)
         upstream_r, upstream_w = await self._open_upstream(host, port)
-        client_w.write(b"HTTP/1.1 200 Connection Established\r\nProxy-Agent: Qproxy/0.3.6\r\n\r\n")
+        client_w.write(
+            b"HTTP/1.1 200 Connection Established\r\nProxy-Agent: Qproxy/4.0\r\n\r\n"
+        )
         await client_w.drain()
         relayed = await self._relay_bidirectional(client_r, client_w, upstream_r, upstream_w)
         self.stats.add_bytes(relayed)
 
-    async def _handle_http(self, method: str, target: str, version: str, headers: list[tuple[str, str]], client_r: asyncio.StreamReader, client_w: asyncio.StreamWriter) -> None:
+    async def _handle_http(
+        self,
+        method: str,
+        target: str,
+        version: str,
+        headers: list[tuple[str, str]],
+        client_r: asyncio.StreamReader,
+        client_w: asyncio.StreamWriter,
+    ) -> None:
         host, port, rewritten = _rewrite_http_request(method, target, version, headers)
-        decision = self.rules.evaluate(host)
+        decision = self.rules.evaluate_http(host, target)
         if decision.blocked:
             self.stats.record(host, "blocked", "http", decision.category, decision.rule)
             LOG.info("BLOCK HTTP %s %s [%s]", host, target, decision.category or "ad")
@@ -188,7 +248,7 @@ class ProxyServer:
             total = 0
             try:
                 while True:
-                    chunk = await src.read(64 * 1024)
+                    chunk = await src.read(RELAY_CHUNK_SIZE)
                     if not chunk:
                         break
                     dst.write(chunk)

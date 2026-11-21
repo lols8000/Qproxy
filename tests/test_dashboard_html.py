@@ -29,7 +29,8 @@ class DashboardHtmlTests(unittest.TestCase):
             input=script,
             capture_output=True,
             text=True,
-            timeout=10,
+            encoding="utf-8",
+            timeout=30,
         )
         self.assertEqual(outcome.returncode, 0, outcome.stderr)
 

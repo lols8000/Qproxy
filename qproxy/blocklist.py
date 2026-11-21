@@ -4,12 +4,32 @@ from dataclasses import dataclass
 from pathlib import Path
 from threading import RLock
 from time import monotonic
+from typing import Callable
+
+
+_UNCONDITIONAL_ABP_OPTIONS = frozenset({"all", "important"})
+
+# Caminhos HTTP inequivocamente publicitários (nunca incluem imagens/vídeos genéricos).
+SAFE_HTTP_AD_PATH_PREFIXES = (
+    "/pagead/",
+    "/pagead2/",
+    "/gampad/",
+    "/api/stats/ads",
+    "/ptracking",
+    "/pcs/activeview",
+    "/adsense/",
+    "/adserver/",
+    "/doubleclick/",
+    "/ads/ads.js",
+    "/ads/ad.js",
+    "/adsystem/",
+)
 
 
 def normalize_host(host: str) -> str:
     host = host.strip().lower().rstrip(".")
     if host.startswith("[") and "]" in host:
-        return host[1:host.index("]")]
+        return host[1 : host.index("]")]
     if ":" in host and host.count(":") == 1:
         host = host.rsplit(":", 1)[0]
     return host
@@ -29,6 +49,20 @@ def _hostname_like(value: str) -> bool:
     return True
 
 
+def is_ad_url_path(path: str) -> str | None:
+    """Identifica caminhos HTTP inequivocamente usados para servir anúncios/rastreio."""
+    if not path:
+        return None
+    low = path.strip().lower()
+    if "://" in low:
+        idx = low.find("/", low.find("://") + 3)
+        low = low[idx:] if idx != -1 else "/"
+    for prefix in SAFE_HTTP_AD_PATH_PREFIXES:
+        if low.startswith(prefix):
+            return prefix
+    return None
+
+
 def _domain_from_rule(line: str) -> tuple[str | None, bool]:
     line = line.strip()
     if not line or line.startswith(("#", "!", "[")):
@@ -43,17 +77,38 @@ def _domain_from_rule(line: str) -> tuple[str | None, bool]:
 
     if line.startswith("||"):
         # Somente regras globais por domínio: não amplie filtros de URL,
-        # recursos ou condições para o domínio inteiro.
-        candidate = line[2:]
+        # recursos ($image, $script, $third-party, $document) ou condições
+        # para o domínio inteiro. Aceita modificadores globais como $all/$important.
+        pattern, sep, opts_raw = line[2:].partition("$")
+        if sep:
+            opts = [opt.strip().lower() for opt in opts_raw.split(",") if opt.strip()]
+            if not opts or any(opt not in _UNCONDITIONAL_ABP_OPTIONS for opt in opts):
+                return None, is_allow
+        candidate = pattern
         if candidate.endswith("^"):
             candidate = candidate[:-1]
         candidate = candidate.lower().rstrip(".")
         return (candidate if _hostname_like(candidate) else None), is_allow
 
+    # Remove comentários inline em formatos hosts / domínios (ex.: "0.0.0.0 ads.test # ad")
+    if " #" in line or "\t#" in line:
+        line = line.split("#", 1)[0].strip()
+        if not line:
+            return None, False
+
     parts = line.split()
     if len(parts) >= 2 and parts[0] in {"0.0.0.0", "127.0.0.1", "::1"}:
         domain = normalize_host(parts[1])
         return (domain if _hostname_like(domain) else None), is_allow
+
+    if len(parts) > 1:
+        return None, is_allow
+
+    # Suporte a formatos wildcard usados por listas DNS modernas (*.ads.com / .ads.com)
+    if line.startswith("*."):
+        line = line[2:]
+    elif line.startswith("."):
+        line = line[1:]
 
     if "://" in line or any(ch in line for ch in "/$*?=#@,:|^"):
         return None, is_allow
@@ -100,21 +155,35 @@ class DomainMatcher:
         self.allowed.discard(normalize_host(domain))
 
     def load_file(
-        self, path: str | Path, default_allow: bool = False,
-        category: str = "ad", origin: str | None = None,
+        self,
+        path: str | Path,
+        default_allow: bool = False,
+        category: str = "ad",
+        origin: str | None = None,
     ) -> int:
         p = Path(path)
         if not p.exists():
             return 0
         count = 0
+        resolved_origin = origin or p.name
+        blocked_set = self.blocked
+        allowed_set = self.allowed
+        categories = self.categories
+        origins = self.origins
+        is_tracker = category == "tracker"
+
         for raw in p.read_text(encoding="utf-8", errors="ignore").splitlines():
             domain, rule_allow = _domain_from_rule(raw)
             if not domain:
                 continue
             if default_allow or rule_allow:
-                self.add_allow(domain)
+                allowed_set.add(domain)
             else:
-                self.add_block(domain, category=category, origin=origin or p.name)
+                blocked_set.add(domain)
+                if is_tracker or domain not in categories:
+                    categories[domain] = category
+                if domain not in origins:
+                    origins[domain] = resolved_origin
             count += 1
         return count
 
@@ -128,12 +197,20 @@ class DomainMatcher:
         host = normalize_host(host)
         if not host:
             return MatchResult(False, host)
-        for suffix in self._suffixes(host):
-            if suffix in self.allowed:
+        allowed = self.allowed
+        blocked = self.blocked
+        labels = host.split(".")
+        count = len(labels)
+        for i in range(count):
+            suffix = ".".join(labels[i:])
+            if suffix in allowed:
                 return MatchResult(False, host, rule=suffix, whitelisted=True)
-        for suffix in self._suffixes(host):
-            if suffix in self.blocked:
-                return MatchResult(True, host, rule=suffix, category=self.categories.get(suffix, "ad"))
+        for i in range(count):
+            suffix = ".".join(labels[i:])
+            if suffix in blocked:
+                return MatchResult(
+                    True, host, rule=suffix, category=self.categories.get(suffix, "ad")
+                )
         return MatchResult(False, host)
 
     def is_allowed(self, host: str) -> bool:
@@ -144,7 +221,9 @@ class DomainMatcher:
 
 
 class RuleManager:
-    """Regras atualizadas atomicamente, com bloqueios manuais persistentes."""
+    """Regras atualizadas atomicamente, com bloqueios manuais persistentes e cache O(1)."""
+
+    _EVAL_CACHE_MAX = 8192
 
     def __init__(
         self,
@@ -161,6 +240,7 @@ class RuleManager:
             for raw in (static_allowlist or [])
             if (domain := normalize_host(raw)) and _hostname_like(domain)
         )
+        self._static_allow_set: frozenset[str] = frozenset(self.static_allowlist)
         self._lock = RLock()
         # Serializa edições e recargas sem prender consultas ao matcher.
         self._reload_lock = RLock()
@@ -169,8 +249,24 @@ class RuleManager:
         self._manual_blocks: set[str] = set()
         self._user_whitelist: set[str] = set()
         self._ordered_blocks: tuple[str, ...] = ()
+        self._eval_cache: dict[str, MatchResult] = {}
+        self._listeners: list[Callable[[], None]] = []
         self.last_load_counts = {"blocked_rules": 0, "allow_rules": 0}
         self.reload()
+
+    def add_change_listener(self, callback: Callable[[], None]) -> None:
+        with self._lock:
+            self._listeners.append(callback)
+
+    def _notify_changed(self) -> None:
+        with self._lock:
+            self._eval_cache.clear()
+            listeners = list(self._listeners)
+        for callback in listeners:
+            try:
+                callback()
+            except Exception:
+                pass
 
     @staticmethod
     def _read_domains(path: Path | None) -> set[str]:
@@ -205,7 +301,9 @@ class RuleManager:
             for path in self.whitelist_paths:
                 allowed += matcher.load_file(path, default_allow=True)
 
-            user_whitelist = self._read_domains(self.whitelist_paths[0]) if self.whitelist_paths else set()
+            user_whitelist = (
+                self._read_domains(self.whitelist_paths[0]) if self.whitelist_paths else set()
+            )
             manual_blocks = self._read_domains(self.manual_blocklist_path)
             for domain in manual_blocks:
                 matcher.add_block(domain, category="manual", origin="Você")
@@ -224,43 +322,95 @@ class RuleManager:
                 self._user_whitelist = user_whitelist
                 self._ordered_blocks = ordered
                 self.last_load_counts = counts
+            self._notify_changed()
             return dict(counts)
 
     def _protected(self, host: str) -> bool:
-        return any(
-            host == safe or host.endswith("." + safe)
-            for safe in self.static_allowlist
-        )
+        return any(host == safe or host.endswith("." + safe) for safe in self.static_allowlist)
+
+    def is_paused(self) -> bool:
+        with self._lock:
+            return monotonic() < self._paused_until
+
+    def is_whitelisted(self, host: str) -> bool:
+        host = normalize_host(host)
+        if not host:
+            return False
+        with self._lock:
+            whitelist = self._user_whitelist
+        labels = host.split(".")
+        for i in range(len(labels)):
+            suffix = ".".join(labels[i:])
+            if suffix in whitelist or suffix in self._static_allow_set:
+                return True
+        return False
 
     def evaluate(self, host: str) -> MatchResult:
         host = normalize_host(host)
+        if not host:
+            return MatchResult(False, host)
         with self._lock:
-            matcher = self._matcher
             paused = monotonic() < self._paused_until
+            if paused:
+                return MatchResult(False, host, rule="paused", whitelisted=True)
+            cached = self._eval_cache.get(host)
+            if cached is not None:
+                return cached
+            matcher = self._matcher
             manual = self._manual_blocks
             whitelist = self._user_whitelist
-        if paused:
-            return MatchResult(False, host, rule="paused", whitelisted=True)
 
-        suffixes = tuple(DomainMatcher._suffixes(host))
+        labels = host.split(".")
+        suffixes = tuple(".".join(labels[i:]) for i in range(len(labels)))
+        result: MatchResult | None = None
         for suffix in suffixes:
-            if suffix in whitelist or suffix in self.static_allowlist:
-                return MatchResult(False, host, rule=suffix, whitelisted=True)
-        # Bloqueio escolhido pelo usuário vence exceção de listas remotas.
-        for suffix in suffixes:
-            if suffix in manual:
-                return MatchResult(True, host, rule=suffix, category="manual")
-        return matcher.evaluate(host)
+            if suffix in whitelist or suffix in self._static_allow_set:
+                result = MatchResult(False, host, rule=suffix, whitelisted=True)
+                break
+        if result is None:
+            # Bloqueio escolhido pelo usuário vence exceção de listas remotas.
+            for suffix in suffixes:
+                if suffix in manual:
+                    result = MatchResult(True, host, rule=suffix, category="manual")
+                    break
+        if result is None:
+            result = matcher.evaluate(host)
+
+        with self._lock:
+            if len(self._eval_cache) >= self._EVAL_CACHE_MAX:
+                self._eval_cache.clear()
+            self._eval_cache[host] = result
+        return result
+
+    def evaluate_http(self, host: str, path: str) -> MatchResult:
+        """Avalia domínio e, quando permitido, verifica caminhos HTTP inequivocamente publicitários."""
+        decision = self.evaluate(host)
+        if decision.blocked:
+            return decision
+        if self.is_paused():
+            return decision
+        # Se o usuário colocou explicitamente o domínio na whitelist, não bloquear por caminho.
+        norm_host = normalize_host(host)
+        with self._lock:
+            user_wl = self._user_whitelist
+        if any(norm_host == d or norm_host.endswith("." + d) for d in user_wl):
+            return decision
+        matched_path = is_ad_url_path(path)
+        if matched_path:
+            return MatchResult(True, norm_host, rule=f"path:{matched_path}", category="ad")
+        return decision
 
     def pause_for(self, seconds: int = 600) -> None:
         if not 1 <= seconds <= 600:
             raise ValueError("Pausa deve ter entre 1 e 600 segundos")
         with self._lock:
             self._paused_until = monotonic() + seconds
+        self._notify_changed()
 
     def resume(self) -> None:
         with self._lock:
             self._paused_until = 0.0
+        self._notify_changed()
 
     def is_blocked(self, host: str) -> bool:
         return self.evaluate(host).blocked
@@ -335,19 +485,20 @@ class RuleManager:
         items = []
         for domain in filtered:
             if start <= total < start + limit:
-                items.append({
-                    "domain": domain,
-                    "category": "manual" if domain in manual else matcher.categories.get(domain, "ad"),
-                    "source": "Você" if domain in manual else matcher.origins.get(domain, "local"),
-                    "manual": domain in manual,
-                    "whitelisted": domain in matcher.allowed,
-                })
+                items.append(
+                    {
+                        "domain": domain,
+                        "category": "manual" if domain in manual else matcher.categories.get(domain, "ad"),
+                        "source": "Você" if domain in manual else matcher.origins.get(domain, "local"),
+                        "manual": domain in manual,
+                        "whitelisted": domain in matcher.allowed,
+                    }
+                )
             total += 1
         return {"total": total, "page": page, "limit": limit, "items": items}
 
     def snapshot(self) -> dict:
         with self._lock:
-            matcher = self._matcher
             counts = dict(self.last_load_counts)
             remaining = max(0, int(self._paused_until - monotonic()))
             whitelist = sorted(self._user_whitelist)
