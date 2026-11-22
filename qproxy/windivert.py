@@ -37,10 +37,10 @@ _ERROR_HINTS = {
 
 class WinDivertError(OSError):
     def __init__(self, code: int, message: str) -> None:
-        self.winerror = code
         hint = _ERROR_HINTS.get(code, "")
         detail = f"{message} (código Windows {code})" + (f": {hint}" if hint else "")
         super().__init__(detail)
+        self.winerror = code
 
 
 class WinDivertDataNetwork(ctypes.Structure):

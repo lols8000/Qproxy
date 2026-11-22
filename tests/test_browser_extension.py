@@ -36,12 +36,14 @@ class BrowserExtensionTests(unittest.TestCase):
         self.assertIn("getDynamicRules", script)
         self.assertIn("qproxyStatus", script)
         self.assertIn("QPROXY_SYNC_NOW", script)
+        self.assertIn("WEB_RULE_FIRST", script)
+        self.assertIn("validWebRule", script)
         for forbidden in ("playbackRate", "currentTime", "video.pause(", "video.play("):
             self.assertNotIn(forbidden, script)
 
-
     def test_local_rules_origin_and_background_csp(self):
         manifest = json.loads((EXT / "manifest.json").read_text(encoding="utf-8"))
+        self.assertEqual(manifest["version"], "0.3.0")
         self.assertIn("http://127.0.0.1:8900", manifest["content_security_policy"]["extension_pages"])
         self.assertIn("http://127.0.0.1/*", manifest["host_permissions"])
 
@@ -57,6 +59,14 @@ class BrowserExtensionTests(unittest.TestCase):
     def test_popup_javascript_syntax(self):
         result = subprocess.run(
             ["node", "--check", str(EXT / "popup.js")],
+            capture_output=True, text=True, timeout=30,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    @unittest.skipUnless(shutil.which("node"), "Node.js não instalado")
+    def test_content_javascript_syntax(self):
+        result = subprocess.run(
+            ["node", "--check", str(EXT / "content.js")],
             capture_output=True, text=True, timeout=30,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
